@@ -905,7 +905,10 @@ class OpenAIResearchProvider:
 
     def _retry_delay(self, attempt: int, retry_after: float | None) -> float:
         if retry_after is not None:
-            return min(retry_after, self.settings.max_retry_delay_seconds)
+            # A server-provided Retry-After is already safely capped at 60
+            # seconds by the classifier. Respect it instead of retrying early
+            # and extending an avoidable rate-limit window.
+            return retry_after
         exponential = self.settings.base_retry_delay_seconds * (2 ** (attempt - 1))
         jitter = self.settings.base_retry_delay_seconds * self._random()
         return min(exponential + jitter, self.settings.max_retry_delay_seconds)

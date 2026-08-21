@@ -312,6 +312,23 @@ def test_transient_error_retries_but_is_strictly_bounded() -> None:
     assert result.metadata.attempts == 2
 
 
+def test_server_retry_after_is_respected_beyond_local_backoff_cap() -> None:
+    sleeps: list[float] = []
+    client = FakeClient([FakeHTTPError(429, retry_after="30"), news_response()])
+    provider = OpenAIResearchProvider(
+        settings(max_retry_delay_seconds=8),
+        api_key=API_KEY,
+        client=client,
+        sleep=sleeps.append,
+        now=lambda: NOW,
+    )
+
+    result = provider.market_news(request())
+
+    assert sleeps == [30]
+    assert result.metadata.attempts == 2
+
+
 def test_observed_response_usage_survives_a_later_retry() -> None:
     observed: list[tuple[ResearchSection, int, int, str | None]] = []
     client = FakeClient([ResponseThenTransientError(), news_response()])
