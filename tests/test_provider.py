@@ -65,6 +65,10 @@ class FakeHTTPError(Exception):
         )
 
 
+class LengthFinishReasonError(Exception):
+    pass
+
+
 class ResponseThenTransientError:
     usage = SimpleNamespace(input_tokens=100, output_tokens=50, total_tokens=150)
     output: tuple[Any, ...] = ()
@@ -297,6 +301,18 @@ def test_observed_response_usage_survives_a_later_retry() -> None:
         "req_first_response",
         "req_test_123",
     )
+
+
+def test_output_length_finish_is_retried_within_the_attempt_cap() -> None:
+    client = FakeClient([LengthFinishReasonError(), news_response()])
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=client, sleep=lambda _delay: None
+    )
+
+    result = provider.market_news(request())
+
+    assert len(client.responses.calls) == 2
+    assert result.metadata.attempts == 2
 
 
 def test_semantic_validation_failure_is_retried_and_usage_is_preserved() -> None:

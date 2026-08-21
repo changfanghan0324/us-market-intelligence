@@ -1142,11 +1142,11 @@ def _system_prompt(
 def _market_news_prompt(request: ResearchRequest) -> str:
     previous = request.previous_session_date or request.report_date
     return (
-        "Find 3-8 evidence-valid candidates covering material US-market events from the "
+        "Find 3-5 concise, evidence-valid candidates covering material US-market events from the "
         f"previous NYSE session ({previous.isoformat()}) through the report cutoff. Avoid "
         "duplicates and routine low-impact headlines. Score the five attention components "
         "0-10 independently; do not provide or rank by a total score. Keep each summary "
-        "at or below 100 characters."
+        "at or below 100 characters and keep every narrative field concise."
     )
 
 

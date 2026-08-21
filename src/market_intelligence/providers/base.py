@@ -151,7 +151,13 @@ def classify_provider_exception(
             "internalserver",
         )
     )
-    if status in {408, 409, 425, 429} or (status is not None and status >= 500) or transient_name:
+    truncated_output = "length" in class_name and "finish" in class_name
+    if (
+        status in {408, 409, 425, 429}
+        or (status is not None and status >= 500)
+        or transient_name
+        or truncated_output
+    ):
         return TransientProviderError(
             "OpenAI temporarily failed while generating this section.",
             section=section,

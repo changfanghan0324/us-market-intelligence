@@ -9,7 +9,7 @@ openai:
   model: gpt-5.6-terra
   reasoning_effort: medium
   search_context_size: medium
-  max_output_tokens_per_section: 3200
+  max_output_tokens_per_section: 8000
   max_tool_calls_per_section: 4
   max_retries: 2
   request_timeout_seconds: 120.0
