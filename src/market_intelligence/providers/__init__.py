@@ -1,7 +1,9 @@
 """External research and licensed market-data provider boundaries."""
 
 from .base import (
+    OPENAI_BILLING_CONFIGURATION_MESSAGE,
     AuthenticationProviderError,
+    BillingProviderError,
     ConfigurationError,
     EvidenceValidationError,
     PermanentProviderError,
@@ -29,7 +31,9 @@ from .openai_research import (
 )
 
 __all__ = [
+    "OPENAI_BILLING_CONFIGURATION_MESSAGE",
     "AuthenticationProviderError",
+    "BillingProviderError",
     "ConfigurationError",
     "DisabledMarketDataProvider",
     "EarningsMarketData",

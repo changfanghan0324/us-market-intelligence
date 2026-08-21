@@ -44,6 +44,11 @@ If the secret is missing, generation exits before research or publication. The
 previous `latest.html` remains intact and the workflow log prints fixed setup
 instructions without revealing environment contents.
 
+The API organization must also have an available API credit balance. A ChatGPT
+subscription does not fund API requests. If the workflow reports that the credit
+balance is exhausted, use the official [API billing portal](https://platform.openai.com/account/billing),
+add credits, wait a few minutes for the balance to update, and rerun the workflow.
+
 ## 3. Enable GitHub Pages
 
 Open `Settings → Pages`. Under **Build and deployment**, choose **GitHub Actions**

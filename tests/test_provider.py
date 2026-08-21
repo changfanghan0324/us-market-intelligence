@@ -9,8 +9,10 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import ValidationError
 
 from market_intelligence.providers.base import (
+    OPENAI_BILLING_CONFIGURATION_MESSAGE,
     OPENAI_KEY_CONFIGURATION_MESSAGE,
     AuthenticationProviderError,
+    BillingProviderError,
     ConfigurationError,
     ResearchSection,
     TransientProviderError,
@@ -61,9 +63,16 @@ class FakeClient:
 
 
 class FakeHTTPError(Exception):
-    def __init__(self, status_code: int, *, retry_after: str | None = None) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        retry_after: str | None = None,
+        body: dict[str, str] | None = None,
+    ) -> None:
         super().__init__("raw response body must never be copied")
         self.status_code = status_code
+        self.body = body
         self.response = SimpleNamespace(
             status_code=status_code,
             headers={} if retry_after is None else {"retry-after": retry_after},
@@ -399,6 +408,29 @@ def test_authentication_error_is_never_retried_or_leaked() -> None:
         provider.market_news(request())
 
     assert len(client.responses.calls) == 1
+    assert "raw response body" not in str(raised.value)
+    assert API_KEY not in str(raised.value)
+
+
+def test_exhausted_credit_balance_stops_without_futile_retries() -> None:
+    client = FakeClient(
+        [
+            FakeHTTPError(
+                429,
+                body={
+                    "code": "credit_balance_exhausted",
+                    "type": "insufficient_quota",
+                },
+            )
+        ]
+    )
+    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
+
+    with pytest.raises(BillingProviderError) as raised:
+        provider.market_news(request())
+
+    assert len(client.responses.calls) == 1
+    assert str(raised.value) == OPENAI_BILLING_CONFIGURATION_MESSAGE
     assert "raw response body" not in str(raised.value)
     assert API_KEY not in str(raised.value)
 
