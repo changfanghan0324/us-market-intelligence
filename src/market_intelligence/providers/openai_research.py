@@ -32,6 +32,8 @@ from pydantic import (
     model_validator,
 )
 
+from market_intelligence.domain.models import validate_named_market_actor_name
+
 from .base import (
     OPENAI_KEY_CONFIGURATION_MESSAGE,
     AuthenticationProviderError,
@@ -282,6 +284,11 @@ class AINamedImpactActor(AIModel):
     kind: Literal["named_entity"]
     name: str = Field(min_length=2, max_length=120)
     rationale: AICompactText = Field(min_length=2, max_length=400)
+
+    @field_validator("name")
+    @classmethod
+    def actor_is_named_not_generic(cls, value: str) -> str:
+        return validate_named_market_actor_name(value)
 
 
 class AINoneIdentifiedActor(AIModel):

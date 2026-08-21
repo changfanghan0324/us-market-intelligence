@@ -87,6 +87,15 @@ _GENERIC_ACTORS = frozenset(
 )
 
 
+def validate_named_market_actor_name(value: str) -> str:
+    """Require a concrete entity name at every model boundary."""
+    if value.casefold() in _GENERIC_ACTORS:
+        raise ValueError("use a named company, sector, country, asset, or institution")
+    if not any(character.isalnum() for character in value):
+        raise ValueError("named actor must contain an entity name")
+    return value
+
+
 def sanitize_untrusted_text(value: object) -> object:
     """Remove control, bidi, and invisible characters from external text."""
 
@@ -267,11 +276,7 @@ class NamedMarketActor(StrictModel):
     @field_validator("name")
     @classmethod
     def actor_is_named_not_generic(cls, value: str) -> str:
-        if value.casefold() in _GENERIC_ACTORS:
-            raise ValueError("use a named company, sector, country, asset, or institution")
-        if not any(character.isalnum() for character in value):
-            raise ValueError("named actor must contain an entity name")
-        return value
+        return validate_named_market_actor_name(value)
 
 
 class NoneIdentifiedActor(StrictModel):

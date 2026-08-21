@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 from openai.lib._pydantic import to_strict_json_schema
+from pydantic import ValidationError
 
 from market_intelligence.providers.base import (
     OPENAI_KEY_CONFIGURATION_MESSAGE,
@@ -128,6 +129,38 @@ def impact() -> dict[str, Any]:
         ),
         "indicators_to_monitor_next": ["Two-year Treasury yield", "Fed funds futures"],
     }
+
+
+@pytest.mark.parametrize("generic_name", ["investors", "投資者"])
+def test_ai_impact_rejects_generic_actor_names(generic_name: str) -> None:
+    candidate = impact()
+    candidate["beneficiaries"][0]["name"] = generic_name
+
+    with pytest.raises(ValidationError, match="named company"):
+        MarketNewsResponse.model_validate(
+            {
+                "candidates": [
+                    {
+                        "title": "政策訊號改變市場預期",
+                        "event_date": "2026-08-21",
+                        "market_impact": "high",
+                        "affected_sectors": ["金融"],
+                        "summary": "央行最新訊號改變利率市場定價",
+                        "bullish_case": "融資成本下降可支撐估值",
+                        "bearish_case": "通膨反彈可能逆轉降息預期",
+                        "attention_components": {
+                            "market_size_impact": 8,
+                            "earnings_impact": 7,
+                            "macro_importance": 9,
+                            "sector_influence": 8,
+                            "short_term_trading_relevance": 8,
+                        },
+                        "impact_analysis": candidate,
+                        "sources": [evidence(publisher="路透社")],
+                    }
+                ]
+            }
+        )
 
 
 def news_response(*, source: dict[str, Any] | None = None, title_prefix: str = "Event") -> Any:
