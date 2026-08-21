@@ -31,6 +31,7 @@ from market_intelligence.providers.openai_research import (
     ResearchRequest,
     assert_ai_schema_has_no_market_data_fields,
     iter_evidence,
+    source_publisher_for,
 )
 
 API_KEY = "sk-" + ("x" * 40)
@@ -349,23 +350,43 @@ def test_authentication_error_is_never_retried_or_leaked() -> None:
     assert API_KEY not in str(raised.value)
 
 
-@pytest.mark.parametrize(
-    ("publisher", "url"),
-    [
-        ("Reuters", "https://evil.example/markets/fabricated"),
-        ("Reuters", "https://www.cnbc.com/2026/08/21/mismatch.html"),
-    ],
-)
-def test_source_domain_and_publisher_host_are_independently_validated(
-    publisher: str, url: str
-) -> None:
-    client = FakeClient([news_response(source=evidence(publisher=publisher, url=url))])
+def test_source_host_must_be_allowlisted() -> None:
+    client = FakeClient(
+        [news_response(source=evidence(url="https://evil.example/markets/fabricated"))]
+    )
     provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
 
     with pytest.raises(EvidenceValidationError):
         provider.market_news(request())
 
     assert len(client.responses.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("publisher", "url", "canonical_publisher"),
+    [
+        (
+            "路透社",
+            "https://www.reuters.com/markets/us/example-article/",
+            "Reuters",
+        ),
+        (
+            "Reuters",
+            "https://www.cnbc.com/2026/08/21/example-article.html",
+            "CNBC",
+        ),
+    ],
+)
+def test_validated_host_is_authoritative_over_localized_model_publisher(
+    publisher: str, url: str, canonical_publisher: str
+) -> None:
+    client = FakeClient([news_response(source=evidence(publisher=publisher, url=url))])
+    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
+
+    result = provider.market_news(request())
+
+    source = result.data.candidates[0].sources[0]
+    assert source_publisher_for(source) == canonical_publisher
 
 
 def test_cited_url_must_appear_in_web_search_source_lineage() -> None:

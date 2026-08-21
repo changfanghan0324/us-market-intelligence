@@ -113,42 +113,6 @@ DEFAULT_DOMAINS: Mapping[ResearchSection, tuple[str, ...]] = {
     ResearchSection.RESEARCH_DISCOVERY: RESEARCH_DOMAINS,
 }
 
-PUBLISHER_DOMAINS: Mapping[str, tuple[str, ...]] = {
-    "reuters": ("reuters.com",),
-    "bloomberg": ("bloomberg.com",),
-    "cnbc": ("cnbc.com",),
-    "wall street journal": ("wsj.com",),
-    "wsj": ("wsj.com",),
-    "financial times": ("ft.com",),
-    "ft": ("ft.com",),
-    "sec": ("sec.gov",),
-    "u s securities and exchange commission": ("sec.gov",),
-    "yahoo finance": ("finance.yahoo.com",),
-    "marketwatch": ("marketwatch.com",),
-    "seeking alpha": ("seekingalpha.com",),
-    "barrons": ("barrons.com",),
-    "barron s": ("barrons.com",),
-    "federal reserve": ("federalreserve.gov",),
-    "bureau of labor statistics": ("bls.gov",),
-    "bureau of economic analysis": ("bea.gov",),
-    "u s treasury": ("treasury.gov",),
-    "eia": ("eia.gov",),
-    "european central bank": ("ecb.europa.eu",),
-    "imf": ("imf.org",),
-    "international monetary fund": ("imf.org",),
-    "world bank": ("worldbank.org",),
-    "opec": ("opec.org",),
-    "ssrn": ("ssrn.com",),
-    "nber": ("nber.org",),
-    "arxiv": ("arxiv.org",),
-    "nature": ("nature.com",),
-    "science": ("science.org",),
-    "mit": ("mit.edu",),
-    "stanford": ("stanford.edu",),
-    "harvard business review": ("hbr.org",),
-    "hbr": ("hbr.org",),
-}
-
 CANONICAL_PUBLISHERS: Mapping[str, str] = {
     "reuters.com": "Reuters",
     "bloomberg.com": "Bloomberg",
@@ -317,7 +281,7 @@ class AIEvidence(AIModel):
 class AINamedImpactActor(AIModel):
     kind: Literal["named_entity"]
     name: str = Field(min_length=2, max_length=120)
-    rationale: AISubstantiveText = Field(min_length=2, max_length=400)
+    rationale: AICompactText = Field(min_length=2, max_length=400)
 
 
 class AINoneIdentifiedActor(AIModel):
@@ -933,23 +897,9 @@ def validate_evidence_source(
             "A source URL is outside the approved domain allowlist.", section=section
         )
 
-    publisher_key = _publisher_key(evidence.publisher)
-    expected_domains = PUBLISHER_DOMAINS.get(publisher_key)
-    if expected_domains is not None:
-        if not any(_host_matches(hostname, domain) for domain in expected_domains):
-            raise EvidenceValidationError(
-                "A source publisher does not match its URL host.", section=section
-            )
-        return
-
-    # Operator-provided company IR domains are allowed only when the publisher
-    # name visibly contains the registrable-domain label.
-    domain_label = matched_domain.split(".")[0].casefold()
-    publisher_tokens = set(publisher_key.split())
-    if len(domain_label) < 3 or domain_label not in publisher_tokens:
-        raise EvidenceValidationError(
-            "A source publisher does not match its URL host.", section=section
-        )
+    # The model's publisher label is localized, untrusted prose. The validated
+    # allowlisted host is authoritative, and the canonical display publisher is
+    # derived from that host later by ``source_publisher_for``.
 
 
 def _validate_item_evidence(
@@ -1056,10 +1006,6 @@ def _validate_domain_list(domains: Iterable[str]) -> None:
 def _host_matches(hostname: str, domain: str) -> bool:
     normalized = domain.casefold().rstrip(".")
     return hostname == normalized or hostname.endswith(f".{normalized}")
-
-
-def _publisher_key(publisher: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9]+", publisher.casefold()))
 
 
 def _reject_duplicate_urls(sources: Iterable[AIEvidence]) -> None:
