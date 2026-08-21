@@ -17,10 +17,11 @@ import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, ClassVar, Literal, TypeVar, cast
+from typing import Annotated, Any, ClassVar, Literal, TypeVar, cast
 from urllib.parse import urlsplit
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -197,6 +198,35 @@ _BIDI_CONTROLS = frozenset(
 _HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
+def _semantic_units(value: str) -> int:
+    return sum(
+        2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+        for character in value
+        if character.isalnum()
+    )
+
+
+def _require_ai_narrative(value: str) -> str:
+    if _semantic_units(value) < 12:
+        raise ValueError("text is too short to be meaningful")
+    return value
+
+
+def _require_ai_compact_text(value: str) -> str:
+    if _semantic_units(value) < 6:
+        raise ValueError("text is too short to be meaningful")
+    return value
+
+
+type AISubstantiveText = Annotated[str, AfterValidator(_require_ai_narrative)]
+type AICompactText = Annotated[str, AfterValidator(_require_ai_compact_text)]
+type AIIndicatorText = Annotated[
+    str,
+    Field(min_length=2, max_length=160),
+    AfterValidator(_require_ai_compact_text),
+]
+
+
 def sanitize_untrusted_text(value: str) -> str:
     """Strip control/bidi characters and normalize model-supplied text."""
 
@@ -287,12 +317,12 @@ class AIEvidence(AIModel):
 class AINamedImpactActor(AIModel):
     kind: Literal["named_entity"]
     name: str = Field(min_length=2, max_length=120)
-    rationale: str = Field(min_length=12, max_length=400)
+    rationale: AISubstantiveText = Field(min_length=2, max_length=400)
 
 
 class AINoneIdentifiedActor(AIModel):
     kind: Literal["none_identified"]
-    rationale: str = Field(min_length=20, max_length=400)
+    rationale: AISubstantiveText = Field(min_length=2, max_length=400)
 
 
 # Do not add a Pydantic discriminator here. A discriminated union emits
@@ -303,20 +333,16 @@ type AIImpactActor = AINamedImpactActor | AINoneIdentifiedActor
 
 
 class AIImpactAnalysis(AIModel):
-    what_changed: str = Field(min_length=24, max_length=700)
-    why_it_matters: str = Field(min_length=24, max_length=700)
+    what_changed: AISubstantiveText = Field(min_length=2, max_length=700)
+    why_it_matters: AISubstantiveText = Field(min_length=2, max_length=700)
     beneficiaries: list[AIImpactActor] = Field(min_length=1, max_length=8)
     losers: list[AIImpactActor] = Field(min_length=1, max_length=8)
-    professional_investor_reaction: str = Field(min_length=24, max_length=700)
-    indicators_to_monitor_next: list[str] = Field(min_length=1, max_length=8)
-
-    @field_validator("indicators_to_monitor_next")
-    @classmethod
-    def require_meaningful_list_entries(cls, value: list[str]) -> list[str]:
-        for entry in value:
-            if len(entry.strip()) < 12 or len(entry) > 160:
-                raise ValueError("impact list entry has invalid length")
-        return value
+    professional_investor_reaction: AISubstantiveText = Field(
+        min_length=2, max_length=700
+    )
+    indicators_to_monitor_next: list[AIIndicatorText] = Field(
+        min_length=1, max_length=8
+    )
 
     @field_validator("beneficiaries", "losers")
     @classmethod
@@ -337,13 +363,13 @@ class AINewsAttentionComponents(AIModel):
 
 
 class AIMarketNewsItem(AIModel):
-    title: str = Field(min_length=8, max_length=200)
+    title: AICompactText = Field(min_length=2, max_length=200)
     event_date: date
     market_impact: Literal["high", "medium", "low"]
     affected_sectors: list[str] = Field(min_length=1, max_length=8)
-    summary: str = Field(min_length=20, max_length=100)
-    bullish_case: str = Field(min_length=20, max_length=600)
-    bearish_case: str = Field(min_length=20, max_length=600)
+    summary: AISubstantiveText = Field(min_length=2, max_length=100)
+    bullish_case: AISubstantiveText = Field(min_length=2, max_length=600)
+    bearish_case: AISubstantiveText = Field(min_length=2, max_length=600)
     attention_components: AINewsAttentionComponents
     impact_analysis: AIImpactAnalysis
     sources: list[AIEvidence] = Field(min_length=1, max_length=6)
@@ -376,7 +402,7 @@ class AIPrediction(AIModel):
     @field_validator("falsification_conditions")
     @classmethod
     def require_testable_conditions(cls, value: list[str]) -> list[str]:
-        if any(len(item) < 12 or len(item) > 300 for item in value):
+        if any(_semantic_units(item) < 12 or len(item) > 300 for item in value):
             raise ValueError("falsification condition has invalid length")
         return value
 
@@ -390,12 +416,12 @@ class AIEarningsCandidate(AIModel):
         "before_market", "during_market", "after_market", "time_not_confirmed"
     ]
     scheduled_release_at: datetime | None
-    why_important: str = Field(min_length=24, max_length=700)
-    bullish_case: str = Field(min_length=20, max_length=700)
-    base_case: str = Field(min_length=20, max_length=700)
-    bearish_case: str = Field(min_length=20, max_length=700)
+    why_important: AISubstantiveText = Field(min_length=2, max_length=700)
+    bullish_case: AISubstantiveText = Field(min_length=2, max_length=700)
+    base_case: AISubstantiveText = Field(min_length=2, max_length=700)
+    bearish_case: AISubstantiveText = Field(min_length=2, max_length=700)
     risk_level: Literal["low", "medium", "high"]
-    risk_analysis: str = Field(min_length=20, max_length=500)
+    risk_analysis: AISubstantiveText = Field(min_length=2, max_length=500)
     selection_components: AIEarningsSelectionComponents
     market_attention: bool
     prediction: AIPrediction
@@ -419,10 +445,10 @@ class EarningsResponse(AIModel):
 
 
 class AIGlobalMacroEvent(AIModel):
-    global_event: str = Field(min_length=8, max_length=200)
+    global_event: AICompactText = Field(min_length=2, max_length=200)
     event_date: date
     market_impact: Literal["high", "medium", "low"]
-    summary: str = Field(min_length=30, max_length=700)
+    summary: AISubstantiveText = Field(min_length=2, max_length=700)
     affected_assets: list[
         Literal["stocks", "bonds", "usd", "commodities", "credit", "other"]
     ] = Field(min_length=1, max_length=6)
@@ -445,14 +471,14 @@ class GlobalMacroResponse(AIModel):
 
 class AIResearchApplication(AIModel):
     category: Literal["finance", "investing", "business_strategy", "technology"]
-    application: str = Field(min_length=12, max_length=600)
+    application: AISubstantiveText = Field(min_length=2, max_length=600)
 
 
 class AIResearchDiscovery(AIModel):
-    research_title: str = Field(min_length=8, max_length=200)
+    research_title: AICompactText = Field(min_length=2, max_length=200)
     research_date: date
-    simple_explanation: str = Field(min_length=40, max_length=900)
-    key_insight: str = Field(min_length=30, max_length=700)
+    simple_explanation: AISubstantiveText = Field(min_length=2, max_length=900)
+    key_insight: AISubstantiveText = Field(min_length=2, max_length=700)
     applications: list[AIResearchApplication] = Field(min_length=4, max_length=4)
     has_current_market_implication: bool
     impact_analysis: AIImpactAnalysis | None
@@ -479,11 +505,13 @@ class ResearchDiscoveryResponse(AIModel):
 
 
 class AIKnowledgeRefresh(AIModel):
-    concept: str = Field(min_length=4, max_length=160)
-    historical_background: str = Field(min_length=30, max_length=800)
-    simple_explanation: str = Field(min_length=40, max_length=900)
-    why_it_still_matters_today: str = Field(min_length=30, max_length=800)
-    real_world_example: str = Field(min_length=30, max_length=800)
+    concept: AICompactText = Field(min_length=2, max_length=160)
+    historical_background: AISubstantiveText = Field(min_length=2, max_length=800)
+    simple_explanation: AISubstantiveText = Field(min_length=2, max_length=900)
+    why_it_still_matters_today: AISubstantiveText = Field(
+        min_length=2, max_length=800
+    )
+    real_world_example: AISubstantiveText = Field(min_length=2, max_length=800)
 
 
 class KnowledgeRefreshResponse(AIModel):

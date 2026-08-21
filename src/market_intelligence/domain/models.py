@@ -16,6 +16,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     BeforeValidator,
     ConfigDict,
@@ -104,6 +105,28 @@ def sanitize_untrusted_text(value: object) -> object:
     return cleaned.strip()
 
 
+def _semantic_units(value: str) -> int:
+    """Measure substance without penalizing information-dense CJK text."""
+
+    return sum(
+        2 if unicodedata.east_asian_width(character) in {"W", "F"} else 1
+        for character in value
+        if character.isalnum()
+    )
+
+
+def _require_narrative_substance(value: str) -> str:
+    if _semantic_units(value) < 12:
+        raise ValueError("narrative text is too short to be meaningful")
+    return value
+
+
+def _require_compact_substance(value: str) -> str:
+    if _semantic_units(value) < 6:
+        raise ValueError("compact text is too short to be meaningful")
+    return value
+
+
 ShortText = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
@@ -123,22 +146,26 @@ Identifier = Annotated[
 NarrativeText = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=20, max_length=2_500),
+    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=2_500),
+    AfterValidator(_require_narrative_substance),
 ]
 NewsSummary = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=20, max_length=100),
+    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=100),
+    AfterValidator(_require_narrative_substance),
 ]
 CompactNarrative = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=12, max_length=600),
+    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=600),
+    AfterValidator(_require_compact_substance),
 ]
 OptionalNarrative = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=8, max_length=1_000),
+    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=1_000),
+    AfterValidator(_require_compact_substance),
 ]
 Score = Annotated[float, Field(strict=True, ge=0.0, le=10.0, allow_inf_nan=False)]
 Confidence = Annotated[float, Field(strict=True, ge=0.0, le=1.0, allow_inf_nan=False)]

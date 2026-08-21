@@ -485,6 +485,35 @@ def test_model_facing_evidence_canonicalizes_equivalent_urls() -> None:
     assert uppercase_with_default_port.url == without_slash.url
 
 
+def test_model_facing_analysis_accepts_concise_traditional_chinese() -> None:
+    payload = news_response().output_parsed.model_dump(mode="json")
+    candidate = payload["candidates"][0]
+    candidate.update(
+        {
+            "title": "政策預期轉向",
+            "summary": "政策訊號改變市場定價",
+            "bullish_case": "資金成本下降有利估值",
+            "bearish_case": "通膨反彈可能壓抑估值",
+        }
+    )
+    candidate["impact_analysis"].update(
+        {
+            "what_changed": "政策預期明顯轉向",
+            "why_it_matters": "折現率下降重估風險資產",
+            "professional_investor_reaction": "機構調整久期與風險曝險",
+            "indicators_to_monitor_next": ["兩年期殖利率", "期貨定價"],
+        }
+    )
+
+    parsed = MarketNewsResponse.model_validate(payload)
+
+    assert parsed.candidates[0].bullish_case == "資金成本下降有利估值"
+    assert parsed.candidates[0].impact_analysis.indicators_to_monitor_next == [
+        "兩年期殖利率",
+        "期貨定價",
+    ]
+
+
 def test_disabled_market_data_adapter_returns_only_unavailable_metrics() -> None:
     result = DisabledMarketDataProvider().get_earnings_metrics(
         ["NVDA", "MSFT"], target_date=date(2026, 8, 22), as_of=NOW

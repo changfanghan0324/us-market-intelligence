@@ -207,6 +207,19 @@ def test_six_answers_enforce_minimum_substance() -> None:
     base["what_changed"] = "Rates rose."
     with pytest.raises(ValidationError):
         ImpactAnalysis.model_validate(base)
+
+
+def test_six_answers_accept_concise_traditional_chinese() -> None:
+    base = impact().model_dump()
+    base["what_changed"] = "政策預期明顯轉向"
+    base["why_it_matters"] = "折現率下降重估風險資產"
+    base["professional_investor_reaction"] = "機構調整久期與風險曝險"
+    base["indicators_to_monitor_next"] = ["兩年期殖利率", "期貨定價"]
+
+    validated = ImpactAnalysis.model_validate(base)
+
+    assert validated.what_changed == "政策預期明顯轉向"
+    assert validated.indicators_to_monitor_next == ["兩年期殖利率", "期貨定價"]
     base = impact().model_dump()
     base["indicators_to_monitor_next"] = []
     with pytest.raises(ValidationError):
