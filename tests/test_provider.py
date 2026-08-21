@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from openai.lib._pydantic import to_strict_json_schema
 
 from market_intelligence.providers.base import (
     OPENAI_KEY_CONFIGURATION_MESSAGE,
@@ -19,6 +20,7 @@ from market_intelligence.providers.market_data import (
 )
 from market_intelligence.providers.openai_research import (
     BANNED_MARKET_DATA_FIELDS,
+    AIEvidence,
     EarningsResponse,
     GlobalMacroResponse,
     KnowledgeRefreshResponse,
@@ -356,6 +358,83 @@ def test_all_ai_schemas_exclude_licensed_numeric_fields() -> None:
         assert_ai_schema_has_no_market_data_fields(schema)
     for field_name in BANNED_MARKET_DATA_FIELDS:
         assert f"'{field_name}'" not in serialized
+
+
+def test_model_facing_wire_schemas_match_supported_structured_output_subset() -> None:
+    schemas = (
+        MarketNewsResponse,
+        EarningsResponse,
+        GlobalMacroResponse,
+        ResearchDiscoveryResponse,
+        KnowledgeRefreshResponse,
+    )
+    forbidden_keys = {
+        "oneOf",
+        "discriminator",
+        "allOf",
+        "not",
+        "dependentRequired",
+        "dependentSchemas",
+        "if",
+        "then",
+        "else",
+        "patternProperties",
+        "default",
+    }
+    allowed_formats = {
+        "date-time",
+        "time",
+        "date",
+        "duration",
+        "email",
+        "hostname",
+        "ipv4",
+        "ipv6",
+        "uuid",
+    }
+
+    def assert_supported(node: object) -> None:
+        if isinstance(node, dict):
+            assert forbidden_keys.isdisjoint(node)
+            if "format" in node:
+                assert node["format"] in allowed_formats
+            if node.get("type") == "object":
+                assert node.get("additionalProperties") is False
+                assert set(node.get("required", [])) == set(node.get("properties", {}))
+            for value in node.values():
+                assert_supported(value)
+        elif isinstance(node, list):
+            for value in node:
+                assert_supported(value)
+
+    for schema in schemas:
+        assert_supported(to_strict_json_schema(schema))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://www.reuters.com/markets/us/example-article/",
+        "https://user@example.com/article",
+        "https://example.com:444/article",
+        "https:///missing-host",
+    ],
+)
+def test_model_facing_evidence_rejects_unsafe_urls(url: str) -> None:
+    with pytest.raises(ValueError, match="evidence URL"):
+        AIEvidence.model_validate(evidence(url=url))
+
+
+def test_model_facing_evidence_canonicalizes_equivalent_urls() -> None:
+    without_slash = AIEvidence.model_validate(
+        evidence(url="https://www.reuters.com")
+    )
+    uppercase_with_default_port = AIEvidence.model_validate(
+        evidence(url="HTTPS://WWW.REUTERS.COM:443")
+    )
+
+    assert without_slash.url == "https://www.reuters.com/"
+    assert uppercase_with_default_port.url == without_slash.url
 
 
 def test_disabled_market_data_adapter_returns_only_unavailable_metrics() -> None:

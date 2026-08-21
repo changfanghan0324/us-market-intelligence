@@ -17,7 +17,7 @@ import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Any, ClassVar, Literal, TypeVar, cast
+from typing import Any, ClassVar, Literal, TypeVar, cast
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -25,6 +25,7 @@ from pydantic import (
     ConfigDict,
     Field,
     HttpUrl,
+    TypeAdapter,
     field_validator,
     model_validator,
 )
@@ -192,6 +193,7 @@ _BIDI_CONTROLS = frozenset(
         "\u2069",
     }
 )
+_HTTP_URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
 def sanitize_untrusted_text(value: str) -> str:
@@ -235,17 +237,36 @@ class AIModel(BaseModel):
 class AIEvidence(AIModel):
     title: str = Field(min_length=4, max_length=200)
     publisher: str = Field(min_length=2, max_length=100)
-    url: HttpUrl
+    # Keep this as a plain string in the model-facing schema. Pydantic's
+    # ``HttpUrl`` emits ``format: uri``, which the Responses Structured Outputs
+    # schema subset rejects. The validator below preserves the same security
+    # boundary after parsing without sending an unsupported schema keyword.
+    url: str
     published_at: datetime | None
     evidence_role: Literal["primary", "corroborating", "context"]
     quoted_fragment: str | None = Field(max_length=160)
 
     @field_validator("url")
     @classmethod
-    def require_safe_https(cls, value: HttpUrl) -> HttpUrl:
-        if value.scheme != "https" or value.username or value.password:
+    def require_safe_https(cls, value: str) -> str:
+        raw = urlsplit(value)
+        try:
+            raw_port = raw.port
+        except ValueError as exc:
+            raise ValueError("evidence URL has an invalid port") from exc
+        if (
+            raw.scheme != "https"
+            or not raw.hostname
+            or raw.username
+            or raw.password
+            or raw_port not in {None, 443}
+        ):
             raise ValueError("evidence URL must use credential-free HTTPS")
-        return value
+        try:
+            parsed = _HTTP_URL_ADAPTER.validate_python(value)
+        except ValueError as exc:
+            raise ValueError("evidence URL is invalid") from exc
+        return str(parsed)
 
     @field_validator("published_at")
     @classmethod
@@ -273,10 +294,11 @@ class AINoneIdentifiedActor(AIModel):
     rationale: str = Field(min_length=20, max_length=400)
 
 
-type AIImpactActor = Annotated[
-    AINamedImpactActor | AINoneIdentifiedActor,
-    Field(discriminator="kind"),
-]
+# Do not add a Pydantic discriminator here. A discriminated union emits
+# ``oneOf``/``discriminator``, which the Responses Structured Outputs schema
+# subset rejects. The plain union emits the supported ``anyOf`` while the
+# literal ``kind`` fields retain unambiguous parsing.
+type AIImpactActor = AINamedImpactActor | AINoneIdentifiedActor
 
 
 class AIImpactAnalysis(AIModel):
