@@ -29,6 +29,11 @@ OPENAI_KEY_CONFIGURATION_MESSAGE = (
     "Secrets and variables > Actions > New repository secret, name it "
     "OPENAI_API_KEY, then rerun the workflow."
 )
+OPENAI_BILLING_CONFIGURATION_MESSAGE = (
+    "OpenAI API credit balance is exhausted. Add API credits at "
+    "https://platform.openai.com/account/billing, wait a few minutes for the balance "
+    "to update, then rerun the workflow."
+)
 
 
 class ProviderError(application_errors.MarketIntelligenceError):
@@ -56,6 +61,10 @@ class AuthenticationProviderError(
     ConfigurationError, application_errors.ProviderAuthenticationError
 ):
     error_code = "provider_authentication_error"
+
+
+class BillingProviderError(ConfigurationError):
+    error_code = "provider_billing_error"
 
 
 class TransientProviderError(ProviderError, application_errors.TransientProviderError):
@@ -135,6 +144,12 @@ def classify_provider_exception(
     retry_after = _retry_after_seconds(exc)
     class_name = type(exc).__name__.casefold()
 
+    if _is_exhausted_credit_balance(exc):
+        return BillingProviderError(
+            OPENAI_BILLING_CONFIGURATION_MESSAGE,
+            section=section,
+        )
+
     if status in {401, 403} or "authentication" in class_name or "permission" in class_name:
         return AuthenticationProviderError(
             "OpenAI authentication failed; verify the OPENAI_API_KEY GitHub secret.",
@@ -193,3 +208,19 @@ def _retry_after_seconds(exc: BaseException) -> float | None:
     except (TypeError, ValueError):
         return None
     return min(max(seconds, 0.0), 60.0)
+
+
+def _is_exhausted_credit_balance(exc: BaseException) -> bool:
+    """Recognize only known billing codes without copying provider payloads."""
+    values: list[object] = [getattr(exc, "code", None)]
+    body = getattr(exc, "body", None)
+    if isinstance(body, Mapping):
+        values.extend((body.get("code"), body.get("type")))
+    return any(
+        value in {
+            "billing_hard_limit_reached",
+            "credit_balance_exhausted",
+            "insufficient_quota",
+        }
+        for value in values
+    )
