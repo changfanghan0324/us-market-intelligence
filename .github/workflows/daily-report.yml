@@ -1,0 +1,217 @@
+name: Daily Market Intelligence
+
+on:
+  schedule:
+    - cron: "0 8 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Replace an existing report for today's New York date
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: daily-market-intelligence-production
+  cancel-in-progress: false
+
+permissions: read-all
+
+jobs:
+  build-and-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      contents: write
+    outputs:
+      should_deploy: ${{ steps.generate.outputs.publishable }}
+      report_id: ${{ steps.generate.outputs.report_id }}
+      report_date: ${{ steps.generate.outputs.report_date }}
+    steps:
+      - name: Check out reviewed source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          path: source
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up locked dependency installer
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.12.2"
+
+      - name: Install application
+        working-directory: source
+        run: uv sync --frozen --no-dev
+
+      - name: Prepare dedicated reports branch worktree
+        id: reports
+        shell: bash
+        env:
+          REPOSITORY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${REPOSITORY_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="${auth_header}"
+          published_root="${RUNNER_TEMP}/market-intelligence-reports"
+          if git -C source ls-remote --exit-code --heads origin reports >/dev/null 2>&1; then
+            git -C source fetch --no-tags origin reports:refs/remotes/origin/reports
+            git -C source worktree add -B reports "${published_root}" origin/reports
+          else
+            git -C source worktree add --detach "${published_root}" HEAD
+            git -C "${published_root}" switch --orphan reports
+          fi
+          echo "published_root=${published_root}" >> "${GITHUB_OUTPUT}"
+
+      - name: Generate and validate report
+        id: generate
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CONFIG_PATH: ${{ github.workspace }}/source/config/config.yaml
+          PUBLISHED_ROOT: ${{ steps.reports.outputs.published_root }}
+          RESULT_FILE: ${{ runner.temp }}/market-intelligence-result.json
+          RUN_LOG: ${{ runner.temp }}/market-intelligence-run.jsonl
+          FORCE_REQUESTED: ${{ github.event_name == 'workflow_dispatch' && inputs.force || false }}
+        run: |
+          set -euo pipefail
+          args=(generate --config "${CONFIG_PATH}" --project-root "${PUBLISHED_ROOT}" --result-file "${RESULT_FILE}" --log-file "${RUN_LOG}")
+          if [[ "${FORCE_REQUESTED}" == "true" ]]; then
+            args+=(--force)
+          fi
+          uv run --project "${GITHUB_WORKSPACE}/source" --frozen --no-dev \
+            market-intelligence "${args[@]}"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result = json.loads(Path(os.environ["RESULT_FILE"]).read_text(encoding="utf-8"))
+          safe = {
+              "changed": str(bool(result["changed"])).lower(),
+              "publishable": str(bool(result["publishable"])).lower(),
+              "report_id": str(result["report_id"]),
+              "report_date": str(result["report_date"]),
+          }
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as handle:
+              for key, value in safe.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+
+      - name: Scan staged public and canonical artifacts
+        if: steps.generate.outputs.publishable == 'true'
+        env:
+          PUBLISHED_ROOT: ${{ steps.reports.outputs.published_root }}
+        run: >-
+          uv run --project source --frozen --no-dev market-intelligence scan
+          --project-root "${PUBLISHED_ROOT}"
+
+      - name: Persist observed usage after a failed run
+        if: failure() && steps.reports.outputs.published_root != ''
+        shell: bash
+        env:
+          PUBLISHED_ROOT: ${{ steps.reports.outputs.published_root }}
+          REPOSITORY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          usage_events="${PUBLISHED_ROOT}/records/usage_events.jsonl"
+          if [[ ! -s "${usage_events}" ]]; then
+            exit 0
+          fi
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${REPOSITORY_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="${auth_header}"
+          git -C "${PUBLISHED_ROOT}" config user.name "github-actions[bot]"
+          git -C "${PUBLISHED_ROOT}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${PUBLISHED_ROOT}" add -- records/usage_events.jsonl
+          if git -C "${PUBLISHED_ROOT}" diff --cached --quiet; then
+            exit 0
+          fi
+          git -C "${PUBLISHED_ROOT}" commit -m "usage: retain failed-run observations"
+          git -C "${PUBLISHED_ROOT}" push origin HEAD:reports
+
+      - name: Commit generated artifacts to reports branch
+        if: steps.generate.outputs.changed == 'true'
+        id: commit
+        shell: bash
+        env:
+          PUBLISHED_ROOT: ${{ steps.reports.outputs.published_root }}
+          REPORT_DATE: ${{ steps.generate.outputs.report_date }}
+          REPOSITORY_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "${REPOSITORY_TOKEN}" | base64 | tr -d '\n')"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="${auth_header}"
+          git -C "${PUBLISHED_ROOT}" config user.name "github-actions[bot]"
+          git -C "${PUBLISHED_ROOT}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${PUBLISHED_ROOT}" add -- site records
+          if git -C "${PUBLISHED_ROOT}" diff --cached --quiet; then
+            echo "committed=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          git -C "${PUBLISHED_ROOT}" commit -m "report: ${REPORT_DATE}"
+          git -C "${PUBLISHED_ROOT}" push origin HEAD:reports
+          echo "committed=true" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload validated Pages artifact
+        if: steps.generate.outputs.publishable == 'true'
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
+        with:
+          path: ${{ steps.reports.outputs.published_root }}/site
+
+      - name: Upload sanitized execution log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: market-intelligence-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/market-intelligence-run.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
+  deploy:
+    needs: build-and-commit
+    if: needs.build-and-commit.outputs.should_deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+
+      - name: Verify public latest report ID
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          REPORT_ID: ${{ needs.build-and-commit.outputs.report_id }}
+        run: |
+          set -euo pipefail
+          latest_url="${PAGE_URL%/}/latest.html"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error --location --max-time 20 "${latest_url}?verification=${GITHUB_RUN_ID}-${attempt}" | grep --fixed-strings --quiet "${REPORT_ID}"; then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Pages verification failed: latest.html did not expose the new report ID." >&2
+          exit 1

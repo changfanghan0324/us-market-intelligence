@@ -1,0 +1,182 @@
+{
+  "schema_version": "1.0",
+  "report_id": "daily-market-report-2026-08-19",
+  "report_date": "2026-08-19",
+  "generated_at": "2026-08-19T12:05:00Z",
+  "timezone": "America/New_York",
+  "source_cutoff_at": "2026-08-19T12:00:00Z",
+  "market_context": {
+    "report_date": "2026-08-19",
+    "report_date_is_session": true,
+    "previous_session": "2026-08-18",
+    "tomorrow_date": "2026-08-20",
+    "tomorrow_is_session": true,
+    "next_open_session": "2026-08-20",
+    "tomorrow_opens_at": "2026-08-20T13:30:00Z",
+    "tomorrow_closes_at": "2026-08-20T20:00:00Z"
+  },
+  "market_news": [
+    {
+      "news_id": "news_rates",
+      "title": "Federal Reserve guidance changes the expected rate path",
+      "event_date": "2026-08-19",
+      "market_impact": "high",
+      "affected_sectors": ["Banking", "Technology"],
+      "summary": "New central-bank guidance repriced rate-sensitive US assets before the opening bell.",
+      "bull_case": "A more predictable easing path could reduce discount rates and support durable growth-company valuations through year end.",
+      "bear_case": "If inflation remains sticky, investors may reverse the initial duration rally and pressure expensive equity multiples.",
+      "attention": {
+        "market_size_impact": 9.0,
+        "earnings_impact": 7.0,
+        "macro_importance": 9.0,
+        "sector_influence": 8.0,
+        "short_term_trading_relevance": 9.0
+      },
+      "impact_analysis": {
+        "what_changed": "The expected sequence of policy moves shifted after officials supplied more explicit guidance about the balance of inflation and employment risks.",
+        "why_it_matters": "Discount rates affect equity valuation, credit conditions, currency pricing, and the hurdle rate used across institutional capital allocation decisions.",
+        "beneficiaries": [{"kind": "named_entity", "name": "US investment-grade bond issuers", "rationale": "Lower benchmark yields can reduce refinancing costs for upcoming maturities."}],
+        "losers": [{"kind": "named_entity", "name": "US regional-bank net interest margins", "rationale": "A faster decline in asset yields could compress income before deposit costs reset."}],
+        "professional_investor_reaction": "Professional investors would reassess duration, trim crowded macro positions, and compare the guidance with rates-market pricing before adding risk.",
+        "indicators_to_monitor_next": ["Monitor the two-year Treasury yield after the next inflation release.", "Track changes in the federal-funds futures curve and rate volatility."]
+      },
+      "sources": [{"evidence_id": "src_rates", "title": "Federal Reserve policy guidance and market response", "publisher": "Reuters", "tier": 1, "url": "https://www.reuters.com/markets/us/federal-reserve-policy-guidance-example/", "published_at": "2026-08-19T10:30:00Z", "accessed_at": "2026-08-19T11:30:00Z", "evidence_role": "primary", "quoted_fragment": null}]
+    },
+    {
+      "news_id": "news_chips",
+      "title": "Semiconductor demand outlook strengthens across data centers",
+      "event_date": "2026-08-19",
+      "market_impact": "high",
+      "affected_sectors": ["Semiconductors", "AI Infrastructure"],
+      "summary": "Supplier commentary showed resilient AI demand but persistent advanced-packaging constraints.",
+      "bull_case": "Sustained infrastructure orders could support revenue visibility and operating leverage across selected chip and equipment suppliers.",
+      "bear_case": "Elevated expectations leave the group vulnerable if customer concentration, lead times, or capital spending guidance weakens.",
+      "attention": {
+        "market_size_impact": 8.0,
+        "earnings_impact": 9.0,
+        "macro_importance": 6.0,
+        "sector_influence": 9.0,
+        "short_term_trading_relevance": 9.0
+      },
+      "impact_analysis": {
+        "what_changed": "Supplier evidence improved near-term visibility for accelerator deployments while making advanced-packaging capacity the clearer operational constraint.",
+        "why_it_matters": "Semiconductor leadership is a major index driver, and changes in capacity or demand assumptions can rapidly alter earnings revisions across the technology supply chain.",
+        "beneficiaries": [{"kind": "named_entity", "name": "Advanced packaging equipment suppliers", "rationale": "Capacity investment can expand order backlogs and service revenue opportunities."}],
+        "losers": [{"kind": "named_entity", "name": "Cloud customers with delayed deployments", "rationale": "Supply constraints can postpone usable computing capacity and related product launches."}],
+        "professional_investor_reaction": "Professional investors would distinguish backlog quality from duplicate ordering and favor suppliers with capacity, pricing power, and diversified customers.",
+        "indicators_to_monitor_next": ["Compare hyperscaler capital-expenditure guidance with supplier backlogs.", "Monitor advanced-packaging lead times and customer concentration disclosures."]
+      },
+      "sources": [{"evidence_id": "src_chips", "title": "Chip suppliers describe data-center order conditions", "publisher": "Company investor relations", "tier": 1, "url": "https://investor.example.com/news/data-center-demand-update/", "published_at": "2026-08-19T09:30:00Z", "accessed_at": "2026-08-19T11:35:00Z", "evidence_role": "primary", "quoted_fragment": null}]
+    },
+    {
+      "news_id": "news_energy",
+      "title": "Oil supply expectations tighten after revised export guidance",
+      "event_date": "2026-08-19",
+      "market_impact": "medium",
+      "affected_sectors": ["Energy", "Transportation"],
+      "summary": "Export guidance tightened supply expectations and lifted crude-price volatility.",
+      "bull_case": "Higher realized prices could improve producer cash flow and support disciplined shareholder distributions among low-cost operators.",
+      "bear_case": "A sustained energy-price increase could raise transportation costs, complicate disinflation, and weaken rate-sensitive consumer demand.",
+      "attention": {
+        "market_size_impact": 7.0,
+        "earnings_impact": 7.0,
+        "macro_importance": 8.0,
+        "sector_influence": 8.0,
+        "short_term_trading_relevance": 7.0
+      },
+      "impact_analysis": {
+        "what_changed": "Expected near-term export availability declined, increasing the probability that inventories tighten before alternative supply reaches refiners.",
+        "why_it_matters": "Oil is both a direct earnings driver for energy companies and an important input into inflation expectations, household spending, and monetary-policy pricing.",
+        "beneficiaries": [{"kind": "named_entity", "name": "Low-cost US shale producers", "rationale": "Higher benchmark prices can expand free cash flow without immediate volume growth."}],
+        "losers": [{"kind": "named_entity", "name": "North American airlines", "rationale": "Jet-fuel inflation can pressure margins when fares cannot adjust quickly enough."}],
+        "professional_investor_reaction": "Professional investors would evaluate the durability of the supply reduction, hedge inflation sensitivity, and avoid extrapolating a one-day price spike.",
+        "indicators_to_monitor_next": ["Watch weekly crude and refined-product inventory changes.", "Track export volumes, tanker movements, and the shape of the futures curve."]
+      },
+      "sources": [{"evidence_id": "src_energy", "title": "Export revision tightens near-term oil balances", "publisher": "Financial Times", "tier": 1, "url": "https://www.ft.com/content/example-oil-export-revision", "published_at": "2026-08-19T08:45:00Z", "accessed_at": "2026-08-19T11:40:00Z", "evidence_role": "corroborating", "quoted_fragment": null}]
+    }
+  ],
+  "earnings": {
+    "target_date": "2026-08-20",
+    "universe_coverage": "bounded_research",
+    "status": "available",
+    "candidates": [{
+      "ticker": "ACME",
+      "company_name": "Acme Semiconductor",
+      "sector": "Semiconductors",
+      "why_important": "The company is a bellwether for advanced packaging demand, so its guidance can reset expectations across equipment and component suppliers.",
+      "release_timing": "after_market",
+      "earnings_at": "2026-08-20T20:05:00Z",
+      "current_price": {"value": null, "unit": "USD per share", "as_of": null, "provider": null, "provenance": "unavailable", "source_evidence_id": null, "license_confirmed": false, "unavailable_reason": "Unavailable (no licensed provider configured)"},
+      "market_cap": {"value": null, "unit": "USD", "as_of": null, "provider": null, "provenance": "unavailable", "source_evidence_id": null, "license_confirmed": false, "unavailable_reason": "Unavailable (no licensed provider configured)"},
+      "expected_eps": {"value": null, "unit": "USD per share", "as_of": null, "provider": null, "provenance": "unavailable", "source_evidence_id": null, "license_confirmed": false, "unavailable_reason": "Unavailable (no licensed provider configured)"},
+      "expected_revenue": {"value": null, "unit": "USD", "as_of": null, "provider": null, "provenance": "unavailable", "source_evidence_id": null, "license_confirmed": false, "unavailable_reason": "Unavailable (no licensed provider configured)"},
+      "selection": {"business_quality": 8.0, "revenue_growth": 8.0, "earnings_surprise_potential": 8.0, "market_expectation_gap": 8.0, "risk_reward_asymmetry": 8.0},
+      "market_attention": true,
+      "bull_case": "Revenue acceleration, improving utilization, and constructive forward guidance could support positive estimate revisions and a favorable share reaction.",
+      "base_case": "Results near expectations with balanced guidance could leave the shares range-bound while investors focus on order timing and gross margin.",
+      "bear_case": "Weak bookings, margin pressure, or customer concentration concerns could challenge the premium valuation and reduce forward estimates.",
+      "risk_level": "high",
+      "risk": "Expectations are elevated and the customer base is concentrated, making the post-earnings reaction sensitive to small changes in forward guidance.",
+      "prediction": {"prediction_id": "pred_acme_20260820", "direction": "up", "horizon": "Next trading session", "confidence": 0.72, "falsification_conditions": ["Revenue guidance falls below the prior midpoint by a material amount.", "Advanced-packaging bookings decline despite strong end-market demand."], "event_window": {"starts_at": "2026-08-20T20:05:00Z", "ends_at": "2026-08-21T20:00:00Z", "benchmark": "S&P 500 Information Technology Index", "anchor_basis": "confirmed_release_time"}, "evidence_ids": ["src_earnings"]},
+      "impact_analysis": {
+        "what_changed": "The upcoming release will provide the first company-specific test of whether packaging constraints are converting into durable revenue and pricing power.",
+        "why_it_matters": "The result can influence earnings expectations for a broad supplier network and reveal whether strong industry demand is translating into profitable deliveries.",
+        "beneficiaries": [{"kind": "named_entity", "name": "Advanced packaging equipment suppliers", "rationale": "Strong orders would support utilization, backlog duration, and incremental service demand."}],
+        "losers": [{"kind": "named_entity", "name": "Legacy packaging competitors", "rationale": "Share gains by advanced platforms can accelerate mix pressure and investment requirements."}],
+        "professional_investor_reaction": "Professional investors would compare bookings, margins, and guidance with embedded expectations before adjusting semiconductor exposure after hours.",
+        "indicators_to_monitor_next": ["Monitor bookings, backlog conversion, and advanced-packaging utilization.", "Compare gross-margin guidance with customer and product mix commentary."]
+      },
+      "sources": [{"evidence_id": "src_earnings", "title": "Acme schedules quarterly earnings release", "publisher": "Company investor relations", "tier": 1, "url": "https://investor.example.com/events/acme-quarterly-results/", "published_at": "2026-08-15T14:00:00Z", "accessed_at": "2026-08-19T11:45:00Z", "evidence_role": "primary", "quoted_fragment": null}]
+    }],
+    "message": null,
+    "next_open_session": null
+  },
+  "global_macro": {
+    "event_id": "macro_inflation",
+    "title": "Global inflation expectations diverge across major economies",
+    "event_date": "2026-08-19",
+    "market_impact": "high",
+    "summary": "New policy and pricing signals showed diverging inflation paths, increasing cross-market dispersion in expected rates, currencies, and sovereign yields.",
+    "affected_asset_classes": ["Stocks", "Bonds", "USD", "Commodities"],
+    "impact_analysis": {
+      "what_changed": "Inflation and policy expectations moved in different directions across major economies, widening the prospective gap between central-bank reaction functions.",
+      "why_it_matters": "Policy divergence changes relative yields, currency hedging costs, capital flows, and the valuation of globally exposed companies and assets.",
+      "beneficiaries": [{"kind": "named_entity", "name": "US dollar carry strategies", "rationale": "Wider favorable rate differentials can improve carry when volatility remains controlled."}],
+      "losers": [{"kind": "named_entity", "name": "Emerging-market dollar borrowers", "rationale": "A stronger dollar can increase servicing costs and tighten external financing conditions."}],
+      "professional_investor_reaction": "Professional investors would reassess currency hedges, relative-duration trades, and geographic earnings exposure rather than treat global rates as one trade.",
+      "indicators_to_monitor_next": ["Track inflation swaps and two-year yield differentials across regions.", "Monitor trade-weighted currency moves and cross-currency funding spreads."]
+    },
+    "sources": [{"evidence_id": "src_macro", "title": "Central banks confront diverging inflation signals", "publisher": "Reuters", "tier": 1, "url": "https://www.reuters.com/markets/global/central-banks-diverging-inflation-example/", "published_at": "2026-08-19T07:30:00Z", "accessed_at": "2026-08-19T11:50:00Z", "evidence_role": "primary", "quoted_fragment": null}]
+  },
+  "research_discovery": {
+    "discovery_id": "research_networks",
+    "title": "Network structure changes how business evidence spreads",
+    "discovered_on": "2026-08-18",
+    "plain_explanation": "The research shows that the same information can produce different adoption patterns depending on who observes whom and where credible evidence first appears.",
+    "changed_belief": "Information quality alone does not determine adoption speed because network position and repeated independent exposure can be equally important.",
+    "applications": [
+      {"category": "finance", "application": "Use diffusion quality when estimating the durability of revenue forecasts."},
+      {"category": "investing", "application": "Test whether evidence reaches independent customer networks before raising exposure."},
+      {"category": "business_strategy", "application": "Separate broad adoption from repeated exposure inside one connected customer group."},
+      {"category": "technology", "application": "Measure independent adoption paths instead of relying on raw mention counts."}
+    ],
+    "impact_analysis": null,
+    "sources": [{"evidence_id": "src_research", "title": "Evidence diffusion through economic networks", "publisher": "NBER", "tier": 1, "url": "https://www.nber.org/papers/example-network-diffusion", "published_at": "2026-08-18T15:00:00Z", "accessed_at": "2026-08-19T11:52:00Z", "evidence_role": "primary", "quoted_fragment": null}]
+  },
+  "knowledge_refresh": {
+    "concept": "Bayesian updating",
+    "background": "Bayesian inference developed from foundational work on conditional probability and became a formal framework for revising beliefs when evidence arrives.",
+    "explanation": "Begin with a prior belief, evaluate how likely the new evidence would be under competing explanations, and update in proportion to its diagnostic value.",
+    "current_relevance": "Investors constantly combine incomplete new information with existing expectations, making disciplined updating essential for avoiding narrative overreaction.",
+    "example": "An analyst revises a demand forecast after a reliable but noisy channel check, while preserving uncertainty about whether the observation is representative."
+  },
+  "section_statuses": {
+    "market_news": {"status": "available", "detail": null},
+    "global_macro": {"status": "available", "detail": null},
+    "research_discovery": {"status": "available", "detail": null},
+    "knowledge_refresh": {"status": "available", "detail": null}
+  },
+  "provider_runs": [{"provider": "OpenAI", "section": "market_news", "model": "gpt-5.4", "status": "success", "attempts": 1, "duration_ms": 1200, "source_count": 3, "web_search_calls": 1, "request_id": "req_sample", "input_tokens": 1200, "output_tokens": 600}],
+  "validation_status": "valid",
+  "warnings": []
+}
