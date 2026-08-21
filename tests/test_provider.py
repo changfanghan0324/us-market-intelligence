@@ -12,8 +12,8 @@ from market_intelligence.providers.base import (
     OPENAI_KEY_CONFIGURATION_MESSAGE,
     AuthenticationProviderError,
     ConfigurationError,
-    EvidenceValidationError,
     ResearchSection,
+    TransientProviderError,
 )
 from market_intelligence.providers.market_data import (
     DisabledMarketDataProvider,
@@ -30,8 +30,11 @@ from market_intelligence.providers.openai_research import (
     OpenAIResearchSettings,
     ResearchDiscoveryResponse,
     ResearchRequest,
+    _normalized_source_url,
+    _response_source_urls,
     assert_ai_schema_has_no_market_data_fields,
     iter_evidence,
+    source_id_for,
     source_publisher_for,
 )
 
@@ -385,14 +388,63 @@ def test_authentication_error_is_never_retried_or_leaked() -> None:
 
 def test_source_host_must_be_allowlisted() -> None:
     client = FakeClient(
-        [news_response(source=evidence(url="https://evil.example/markets/fabricated"))]
+        [
+            news_response(source=evidence(url="https://evil.example/markets/fabricated"))
+            for _ in range(3)
+        ]
     )
     provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
 
-    with pytest.raises(EvidenceValidationError):
+    with pytest.raises(TransientProviderError):
         provider.market_news(request())
 
-    assert len(client.responses.calls) == 1
+    assert len(client.responses.calls) == 3
+
+
+def test_invalid_individual_source_is_removed_without_discarding_candidate() -> None:
+    original = news_response().output_parsed
+    invalid = AIEvidence.model_validate(
+        evidence(url="https://www.reuters.com/markets/us/not-in-search-lineage/")
+    )
+    first = original.candidates[0].model_copy(
+        update={"sources": [*original.candidates[0].sources, invalid]}
+    )
+    parsed = original.model_copy(update={"candidates": [first, *original.candidates[1:]]})
+    response = fake_sdk_response(parsed)
+    response.output[0].action.sources = [
+        source
+        for source in response.output[0].action.sources
+        if "not-in-search-lineage" not in source.url
+    ]
+    client = FakeClient([response])
+    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
+
+    result = provider.market_news(request())
+
+    assert len(result.data.candidates) == 3
+    assert len(result.data.candidates[0].sources) == 1
+    assert "reuters.com" in str(result.data.candidates[0].sources[0].url)
+
+
+def test_fewer_than_three_source_valid_news_candidates_triggers_bounded_retry() -> None:
+    original = news_response().output_parsed
+    candidates = [original.candidates[0]]
+    for index, candidate in enumerate(original.candidates[1:], start=1):
+        invalid = AIEvidence.model_validate(
+            evidence(url=f"https://evil.example/markets/fabricated-{index}")
+        )
+        candidates.append(candidate.model_copy(update={"sources": [invalid]}))
+    first = fake_sdk_response(original.model_copy(update={"candidates": candidates}))
+    client = FakeClient([first, news_response()])
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=client, sleep=lambda _delay: None
+    )
+
+    result = provider.market_news(request())
+
+    assert len(client.responses.calls) == 2
+    assert result.metadata.attempts == 2
+    assert len(result.data.candidates) == 3
 
 
 @pytest.mark.parametrize(
@@ -423,15 +475,93 @@ def test_validated_host_is_authoritative_over_localized_model_publisher(
 
 
 def test_cited_url_must_appear_in_web_search_source_lineage() -> None:
-    response = news_response()
-    response.output[0].action.sources = [
-        SimpleNamespace(url="https://www.reuters.com/markets/us/a-different-article/")
-    ]
-    client = FakeClient([response])
+    responses = []
+    for _ in range(3):
+        response = news_response()
+        response.output[0].action.sources = [
+            SimpleNamespace(url="https://www.reuters.com/markets/us/a-different-article/")
+        ]
+        responses.append(response)
+    client = FakeClient(responses)
     provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
 
-    with pytest.raises(EvidenceValidationError):
+    with pytest.raises(TransientProviderError):
         provider.market_news(request())
+
+    assert len(client.responses.calls) == 3
+
+
+def test_all_sdk_web_lineage_shapes_are_collected() -> None:
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="web_search_call",
+                action=SimpleNamespace(
+                    type="search",
+                    sources=[SimpleNamespace(url="https://www.reuters.com/a/")],
+                ),
+            ),
+            SimpleNamespace(
+                type="web_search_call",
+                action=SimpleNamespace(
+                    type="open_page", url="https://www.cnbc.com/b/?utm_source=test"
+                ),
+            ),
+            SimpleNamespace(
+                type="web_search_call",
+                action=SimpleNamespace(
+                    type="find_in_page", url="https://www.ft.com/c/#section"
+                ),
+            ),
+            SimpleNamespace(
+                type="message",
+                content=[
+                    SimpleNamespace(
+                        annotations=[
+                            SimpleNamespace(
+                                type="url_citation",
+                                url="https://www.wsj.com/d/",
+                            )
+                        ]
+                    )
+                ],
+            ),
+        ]
+    )
+
+    assert _response_source_urls(response) == frozenset(
+        {
+            "https://reuters.com/a",
+            "https://cnbc.com/b",
+            "https://ft.com/c",
+            "https://wsj.com/d",
+        }
+    )
+
+
+def test_source_url_normalization_is_strict_but_tracking_tolerant() -> None:
+    first = _normalized_source_url(
+        "https://www.reuters.com:443/world/%7Epolicy/?utm_source=test&article=one#top"
+    )
+    second = _normalized_source_url(
+        "https://reuters.com/world/~policy?article=one&utm_medium=email"
+    )
+
+    assert first == second == "https://reuters.com/world/~policy?article=one"
+    assert _normalized_source_url("https://reuters.com/world/~policy?article=two") != first
+    assert _normalized_source_url("https://user@reuters.com/world/~policy") == ""
+    assert _normalized_source_url("https://reuters.com:444/world/~policy") == ""
+    assert _normalized_source_url("http://reuters.com/world/~policy") == ""
+    assert _normalized_source_url("https://markets.reuters.com/world/~policy") != first
+
+
+def test_normalized_source_identity_ignores_only_tracking_variants() -> None:
+    plain = AIEvidence.model_validate(evidence(url="https://reuters.com/a/story"))
+    tracked = AIEvidence.model_validate(
+        evidence(url="https://www.reuters.com/a/story/?utm_source=newsletter")
+    )
+
+    assert source_id_for(plain) == source_id_for(tracked)
 
 
 def test_control_and_bidi_characters_are_removed_from_model_text() -> None:

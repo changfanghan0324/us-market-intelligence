@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from pydantic import (
     AfterValidator,
@@ -740,14 +740,14 @@ class OpenAIResearchProvider:
                 )
                 return ProviderResult(data=parsed, accessed_at=accessed_at, metadata=metadata)
             except Exception as exc:
-                if isinstance(exc, ValidationError):
+                if isinstance(exc, ValidationError | EvidenceValidationError):
                     # The API can satisfy the wire schema while a runtime-only
-                    # semantic validator (for example, exact asset coverage)
-                    # rejects the parsed object. A fresh bounded attempt is
-                    # appropriate; the preceding response usage was already
-                    # observed and remains in the accumulated ledger.
+                    # semantic or evidence validator rejects the parsed object.
+                    # A fresh bounded attempt is appropriate because the model
+                    # can correct its own output; the preceding response usage
+                    # was already observed and remains in the accumulated ledger.
                     error = TransientProviderError(
-                        "OpenAI returned section output that failed semantic validation.",
+                        "OpenAI returned section output that failed publication validation.",
                         section=section,
                     )
                 else:
@@ -824,40 +824,69 @@ class OpenAIResearchProvider:
         if isinstance(data, MarketNewsResponse):
             valid_news = []
             for item in data.candidates:
-                try:
-                    _validate_item_evidence(
-                        item.sources,
-                        domains=domains,
-                        section=section,
-                        response_source_urls=response_source_urls,
-                    )
-                except EvidenceValidationError:
+                valid_sources = _validated_evidence_sources(
+                    item.sources,
+                    domains=domains,
+                    section=section,
+                    response_source_urls=response_source_urls,
+                )
+                if not valid_sources:
                     continue
-                valid_news.append(item)
-            if not valid_news:
+                valid_news.append(item.model_copy(update={"sources": valid_sources}))
+            if len(valid_news) < 3:
                 raise EvidenceValidationError(
-                    "No market-news candidate passed source validation.", section=section
+                    "Fewer than three market-news candidates passed source validation.",
+                    section=section,
                 )
             return cast(ResponseModel, data.model_copy(update={"candidates": valid_news}))
         if isinstance(data, EarningsResponse):
             valid_earnings = []
             for item in data.candidates:
-                try:
-                    _validate_item_evidence(
-                        item.sources,
-                        domains=domains,
-                        section=section,
-                        response_source_urls=response_source_urls,
-                    )
-                except EvidenceValidationError:
+                valid_sources = _validated_evidence_sources(
+                    item.sources,
+                    domains=domains,
+                    section=section,
+                    response_source_urls=response_source_urls,
+                )
+                if not valid_sources:
                     continue
-                valid_earnings.append(item)
+                valid_earnings.append(item.model_copy(update={"sources": valid_sources}))
             if data.candidates and not valid_earnings:
                 raise EvidenceValidationError(
                     "No earnings candidate passed source validation.", section=section
                 )
             return cast(
                 ResponseModel, data.model_copy(update={"candidates": valid_earnings})
+            )
+        if isinstance(data, GlobalMacroResponse):
+            valid_sources = _validated_evidence_sources(
+                data.event.sources,
+                domains=domains,
+                section=section,
+                response_source_urls=response_source_urls,
+            )
+            if not valid_sources:
+                raise EvidenceValidationError(
+                    "The macro event had no source with verified web-search lineage.",
+                    section=section,
+                )
+            event = data.event.model_copy(update={"sources": valid_sources})
+            return cast(ResponseModel, data.model_copy(update={"event": event}))
+        if isinstance(data, ResearchDiscoveryResponse):
+            valid_sources = _validated_evidence_sources(
+                data.discovery.sources,
+                domains=domains,
+                section=section,
+                response_source_urls=response_source_urls,
+            )
+            if not valid_sources:
+                raise EvidenceValidationError(
+                    "The research discovery had no source with verified web-search lineage.",
+                    section=section,
+                )
+            discovery = data.discovery.model_copy(update={"sources": valid_sources})
+            return cast(
+                ResponseModel, data.model_copy(update={"discovery": discovery})
             )
         _validate_item_evidence(
             tuple(iter_evidence(data)),
@@ -932,8 +961,32 @@ def _validate_item_evidence(
             )
 
 
+def _validated_evidence_sources(
+    sources: Iterable[AIEvidence],
+    *,
+    domains: Iterable[str],
+    section: ResearchSection,
+    response_source_urls: frozenset[str] | None,
+) -> list[AIEvidence]:
+    """Keep only sources that independently satisfy host and lineage checks."""
+    valid: list[AIEvidence] = []
+    for evidence in sources:
+        try:
+            _validate_item_evidence(
+                (evidence,),
+                domains=domains,
+                section=section,
+                response_source_urls=response_source_urls,
+            )
+        except EvidenceValidationError:
+            continue
+        valid.append(evidence)
+    return valid
+
+
 def source_id_for(evidence: AIEvidence) -> str:
-    digest = hashlib.sha256(str(evidence.url).encode("utf-8")).hexdigest()[:20]
+    canonical_url = _normalized_source_url(str(evidence.url)) or str(evidence.url)
+    digest = hashlib.sha256(canonical_url.encode("utf-8")).hexdigest()[:20]
     return f"src_{digest}"
 
 
@@ -1016,7 +1069,9 @@ def _host_matches(hostname: str, domain: str) -> bool:
 
 
 def _reject_duplicate_urls(sources: Iterable[AIEvidence]) -> None:
-    urls = [str(source.url) for source in sources]
+    urls = [
+        _normalized_source_url(str(source.url)) or str(source.url) for source in sources
+    ]
     if len(urls) != len(set(urls)):
         raise ValueError("duplicate source URL")
 
@@ -1033,26 +1088,85 @@ def _response_source_urls(response: Any) -> frozenset[str]:
     urls: set[str] = set()
     output = getattr(response, "output", ()) or ()
     for item in output:
-        if _read(item, "type") != "web_search_call":
-            continue
-        action = _read(item, "action")
-        sources = _read(action, "sources") or ()
-        for source in sources:
-            url = _read(source, "url")
-            if isinstance(url, str):
+        if _read(item, "type") == "web_search_call":
+            action = _read(item, "action")
+            sources = _read(action, "sources") or ()
+            for source in sources:
+                url = _read(source, "url")
+                if not isinstance(url, str):
+                    continue
                 normalized = _normalized_source_url(url)
                 if normalized:
                     urls.add(normalized)
+            # The SDK models web-search actions as a union. ``open_page`` and
+            # ``find_in_page`` expose the accessed page directly as
+            # ``action.url`` rather than through ``action.sources``.
+            action_url = _read(action, "url")
+            if isinstance(action_url, str):
+                normalized = _normalized_source_url(action_url)
+                if normalized:
+                    urls.add(normalized)
+        content_parts = _read(item, "content") or ()
+        for content in content_parts:
+            for annotation in _read(content, "annotations") or ():
+                if _read(annotation, "type") != "url_citation":
+                    continue
+                citation_url = _read(annotation, "url")
+                if isinstance(citation_url, str):
+                    normalized = _normalized_source_url(citation_url)
+                    if normalized:
+                        urls.add(normalized)
     return frozenset(urls)
 
 
 def _normalized_source_url(value: str) -> str:
     parsed = urlsplit(value)
-    if parsed.scheme.casefold() != "https" or not parsed.hostname:
+    try:
+        port = parsed.port
+    except ValueError:
         return ""
-    host = parsed.hostname.casefold().rstrip(".")
-    path = re.sub(r"/{2,}", "/", parsed.path or "/").rstrip("/") or "/"
-    return f"https://{host}{path}"
+    if (
+        parsed.scheme.casefold() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
+        return ""
+    host = parsed.hostname.casefold().rstrip(".").removeprefix("www.")
+    path = re.sub(r"/{2,}", "/", parsed.path or "/")
+    path = _normalize_unreserved_percent_encoding(path).rstrip("/") or "/"
+    query_items = [
+        (key, item_value)
+        for key, item_value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not _is_tracking_query_parameter(key)
+    ]
+    query = urlencode(sorted(query_items), doseq=True)
+    suffix = f"?{query}" if query else ""
+    return f"https://{host}{path}{suffix}"
+
+
+def _normalize_unreserved_percent_encoding(value: str) -> str:
+    unreserved = frozenset(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    )
+
+    def replace(match: re.Match[str]) -> str:
+        character = chr(int(match.group(1), 16))
+        return character if character in unreserved else match.group(0).upper()
+
+    return re.sub(r"%([0-9A-Fa-f]{2})", replace, value)
+
+
+def _is_tracking_query_parameter(name: str) -> bool:
+    normalized = name.casefold()
+    return normalized.startswith("utm_") or normalized in {
+        "fbclid",
+        "gclid",
+        "guccounter",
+        "guce_referrer",
+        "guce_referrer_sig",
+    }
 
 
 def _usage(response: Any) -> ProviderUsage:
@@ -1113,8 +1227,10 @@ def _system_prompt(
         "market-bearing item must answer what changed, why it matters, beneficiaries, "
         "losers, likely professional-investor reaction, and indicators to monitor next. "
         "Use an actor with kind='none_identified' only when no defensible beneficiary or "
-        "loser exists; never combine that sentinel with named actors. Write analysis in "
-        f"{request.locale}. Section={section.value}; "
+        "loser exists; never combine that sentinel with named actors. "
+        "For every source object, copy an exact final HTTPS URL returned or opened by "
+        "web search; never invent, reconstruct, shorten, or substitute a source URL. "
+        f"Write analysis in {request.locale}. Section={section.value}; "
         f"report_date={request.report_date.isoformat()}; timezone={request.timezone_name}; "
         f"source_cutoff={request.generated_at.isoformat()}."
     )
