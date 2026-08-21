@@ -9,6 +9,9 @@ deploys it through GitHub Pages.
 The permanent iPhone Shortcut target is `latest.html`. Public Pages retains the
 newest successful report plus seven prior successful dated reports.
 
+- Live report: [latest.html](https://changfanghan0324.github.io/us-market-intelligence/latest.html)
+- Source repository: [changfanghan0324/us-market-intelligence](https://github.com/changfanghan0324/us-market-intelligence)
+
 ## What the report always answers
 
 Every market analysis explicitly states:
@@ -71,11 +74,12 @@ the coverage field can then be switched to `authoritative_full_calendar` after r
 
 ## Quick start
 
-1. Push this project to a GitHub repository.
+1. Use the configured [GitHub repository](https://github.com/changfanghan0324/us-market-intelligence).
 2. Add `OPENAI_API_KEY` under repository Actions secrets.
 3. Select **GitHub Actions** as the Pages publishing source.
 4. Run **Daily Market Intelligence** manually once.
-5. Use the deployed `latest.html` URL in the iPhone Shortcut.
+5. Use the permanent [latest report URL](https://changfanghan0324.github.io/us-market-intelligence/latest.html)
+   in the iPhone Shortcut.
 
 See [Setup](docs/SETUP.md) for the exact steps and
 [iPhone Shortcut](docs/IPHONE_SHORTCUT.md) for the one-tap configuration.

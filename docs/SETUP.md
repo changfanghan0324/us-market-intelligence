@@ -12,8 +12,10 @@ pre-implementation architecture review recorded in this repository.
 
 ## 1. Put the source on GitHub
 
-Create a repository and push this project to its default branch (normally
-`main`). Do not add an `.env` file or any API key to the commit.
+The configured source repository is
+[changfanghan0324/us-market-intelligence](https://github.com/changfanghan0324/us-market-intelligence).
+Push source changes to its default `main` branch. Do not add an `.env` file or
+any API key to the commit.
 
 The workflow creates and maintains a separate `reports` branch automatically.
 Generated reports are never committed to the source branch.
@@ -68,14 +70,10 @@ An idempotent rerun does not repeat paid research, but it does redeploy the
 validated existing Pages artifact. This is the recovery path when a previous
 Pages deployment failed after the reports-branch commit.
 
-The deployment job displays the exact Pages URL. For a project repository it is
-normally:
+The deployment job displays and verifies the exact Pages URL. This deployment's
+permanent report address is:
 
-`https://OWNER.github.io/REPOSITORY/latest.html`
-
-For an account Pages repository named `OWNER.github.io`, it is normally:
-
-`https://OWNER.github.io/latest.html`
+[https://changfanghan0324.github.io/us-market-intelligence/latest.html](https://changfanghan0324.github.io/us-market-intelligence/latest.html)
 
 ## 5. Local verification (development only)
 

@@ -30,6 +30,9 @@ market-intelligence = "market_intelligence.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/market_intelligence"]
 
+[tool.hatch.build.targets.sdist]
+exclude = ["/actionlint_*.tar.gz"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 pythonpath = ["src"]
