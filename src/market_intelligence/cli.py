@@ -371,12 +371,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         PublicationError,
         PublicArtifactSafetyError,
     ) as error:
+        section = getattr(error, "section", None)
         logger.error(
             str(error),
             extra={
                 "phase": getattr(args, "command", "unknown"),
                 "status": "failed",
                 "error_code": type(error).__name__,
+                "section": getattr(section, "value", None),
             },
         )
         return 2

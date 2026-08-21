@@ -122,3 +122,11 @@ def test_company_ir_domains_are_enabled_only_for_news_and_earnings() -> None:
         ResearchSection.EARNINGS
     ]
     assert ResearchSection.GLOBAL_MACRO not in settings.domain_overrides
+
+
+def test_production_config_avoids_bursting_web_search_requests() -> None:
+    config = load_config(CONFIG)
+
+    assert config.openai.max_parallel_sections == 1
+    assert config.openai.request_timeout_seconds == 120.0
+    assert config.openai.total_deadline_seconds == 300.0

@@ -12,9 +12,10 @@ openai:
   max_output_tokens_per_section: 3200
   max_tool_calls_per_section: 4
   max_retries: 2
-  request_timeout_seconds: 75.0
-  total_deadline_seconds: 210.0
-  max_parallel_sections: 3
+  request_timeout_seconds: 120.0
+  total_deadline_seconds: 300.0
+  # Sequential sections avoid burst rate limits on newly provisioned projects.
+  max_parallel_sections: 1
   monthly_input_token_limit: 2000000
   monthly_output_token_limit: 500000
   monthly_web_search_call_limit: 500
