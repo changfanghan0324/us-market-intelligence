@@ -26,6 +26,7 @@ from pydantic import (
     Field,
     HttpUrl,
     TypeAdapter,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -740,7 +741,18 @@ class OpenAIResearchProvider:
                 )
                 return ProviderResult(data=parsed, accessed_at=accessed_at, metadata=metadata)
             except Exception as exc:
-                error = classify_provider_exception(exc, section=section)
+                if isinstance(exc, ValidationError):
+                    # The API can satisfy the wire schema while a runtime-only
+                    # semantic validator (for example, exact asset coverage)
+                    # rejects the parsed object. A fresh bounded attempt is
+                    # appropriate; the preceding response usage was already
+                    # observed and remains in the accumulated ledger.
+                    error = TransientProviderError(
+                        "OpenAI returned section output that failed semantic validation.",
+                        section=section,
+                    )
+                else:
+                    error = classify_provider_exception(exc, section=section)
                 last_error = error
                 if not isinstance(error, TransientProviderError):
                     raise error from exc

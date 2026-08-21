@@ -75,6 +75,16 @@ class ResponseThenTransientError:
         raise FakeHTTPError(429, retry_after="0")
 
 
+class ResponseThenStructuredValidationError:
+    usage = SimpleNamespace(input_tokens=100, output_tokens=50, total_tokens=150)
+    output: tuple[Any, ...] = ()
+    _request_id = "req_invalid_semantics"
+
+    @property
+    def output_parsed(self) -> Any:
+        return MarketNewsResponse.model_validate({"candidates": []})
+
+
 def evidence(
     *,
     publisher: str = "Reuters",
@@ -287,6 +297,28 @@ def test_observed_response_usage_survives_a_later_retry() -> None:
         "req_first_response",
         "req_test_123",
     )
+
+
+def test_semantic_validation_failure_is_retried_and_usage_is_preserved() -> None:
+    observed: list[tuple[int, str | None]] = []
+    client = FakeClient([ResponseThenStructuredValidationError(), news_response()])
+    provider = OpenAIResearchProvider(
+        settings(),
+        api_key=API_KEY,
+        client=client,
+        sleep=lambda _delay: None,
+        now=lambda: NOW,
+        usage_observer=lambda _section, attempt, _usage, _at, request_id: (
+            observed.append((attempt, request_id))
+        ),
+    )
+
+    result = provider.market_news(request())
+
+    assert observed == [(1, "req_invalid_semantics"), (2, "req_test_123")]
+    assert result.metadata.attempts == 2
+    assert result.metadata.usage.input_tokens == 200
+    assert result.metadata.usage.output_tokens == 100
 
 
 def test_authentication_error_is_never_retried_or_leaked() -> None:
