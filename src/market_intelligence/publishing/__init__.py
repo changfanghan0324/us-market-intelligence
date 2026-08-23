@@ -8,7 +8,9 @@ __all__ = [
     "BuildResult",
     "PublicationError",
     "SiteBuilder",
+    "VerifiedRecords",
     "VerifiedSite",
+    "verify_records_tree",
     "verify_site_tree",
 ]
 
@@ -28,4 +30,11 @@ def __getattr__(name: str) -> Any:
         from .verification import VerifiedSite, verify_site_tree
 
         return {"VerifiedSite": VerifiedSite, "verify_site_tree": verify_site_tree}[name]
+    if name in {"VerifiedRecords", "verify_records_tree"}:
+        from .records_verification import VerifiedRecords, verify_records_tree
+
+        return {
+            "VerifiedRecords": VerifiedRecords,
+            "verify_records_tree": verify_records_tree,
+        }[name]
     raise AttributeError(name)

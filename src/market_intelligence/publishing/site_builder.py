@@ -26,6 +26,7 @@ from market_intelligence.reporting.retention import (
     report_filename,
 )
 
+from .records_verification import verify_records_tree
 from .safety import PublicArtifactSafetyError, assert_public_text, assert_safe_tree
 from .verification import verify_site_tree
 
@@ -165,6 +166,61 @@ def _prepare_tree(existing: Path, staging: Path) -> None:
         _copy_tree_without_links(existing, staging)
     else:
         staging.mkdir(parents=True, exist_ok=False)
+
+
+def _verify_existing_site(
+    existing: Path,
+    *,
+    blocked_values: Iterable[str],
+) -> tuple[date, ...]:
+    """Reject a nonempty existing Pages tree unless its recorded integrity holds."""
+
+    if not existing.exists() and not existing.is_symlink():
+        return ()
+    if existing.is_symlink() or not existing.is_dir():
+        raise PublicationError("existing site must be a real directory")
+    try:
+        is_empty = next(existing.iterdir(), None) is None
+    except OSError as exc:
+        raise PublicationError("existing site could not be inspected safely") from exc
+    if is_empty:
+        return ()
+    try:
+        verify_site_tree(existing, blocked_values=blocked_values)
+        return tuple(
+            managed.report_date for managed in discover_reports(existing / "reports")
+        )
+    except (OSError, PublicArtifactSafetyError) as exc:
+        raise PublicationError("existing site failed integrity verification") from exc
+
+
+def _verify_existing_records(
+    existing: Path,
+    *,
+    public_report_dates: Iterable[date],
+    blocked_values: Iterable[str],
+) -> None:
+    """Reject historical record corruption before rendering or staging."""
+
+    dates = tuple(public_report_dates)
+    if not existing.exists() and not existing.is_symlink():
+        if dates:
+            raise PublicationError("existing records are missing for the public site")
+        return
+    try:
+        assert_safe_tree(existing, blocked_values=blocked_values)
+        verified = verify_records_tree(
+            existing,
+            public_report_dates=dates,
+            blocked_values=blocked_values,
+        )
+        expected_latest = max(dates, default=None)
+        if verified.latest_report_date != expected_latest:
+            raise PublicArtifactSafetyError(
+                "canonical and public latest report dates do not match"
+            )
+    except (OSError, PublicArtifactSafetyError) as exc:
+        raise PublicationError("existing records failed integrity verification") from exc
 
 
 def _tree_digest(root: Path) -> str | None:
@@ -627,6 +683,15 @@ class SiteBuilder:
 
         if not isinstance(force, bool):
             raise TypeError("force must be a boolean")
+        public_report_dates = _verify_existing_site(
+            self.project_root / "site",
+            blocked_values=self.blocked_values,
+        )
+        _verify_existing_records(
+            self.project_root / "records",
+            public_report_dates=public_report_dates,
+            blocked_values=self.blocked_values,
+        )
         try:
             public_report = project_public_report(report)
             html = self.renderer.render(report)
@@ -689,6 +754,18 @@ class SiteBuilder:
                 staged_site,
                 blocked_values=self.blocked_values,
             )
+            verified_records = verify_records_tree(
+                staged_records,
+                public_report_dates=(
+                    managed.report_date
+                    for managed in discover_reports(staged_site / "reports")
+                ),
+                blocked_values=self.blocked_values,
+            )
+            if verified_records.latest_report_date != verified.report_date:
+                raise PublicationError(
+                    "canonical and public latest report dates do not match"
+                )
             latest_bytes = _read_bytes(staged_site / "latest.html")
             dated_bytes = _read_bytes(staged_site / "reports" / dated_filename)
             if latest_bytes != dated_bytes or _sha256_bytes(latest_bytes) != latest_digest:
