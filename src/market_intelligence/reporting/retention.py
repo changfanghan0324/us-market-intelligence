@@ -105,7 +105,9 @@ def discover_reports(reports_dir: Path) -> tuple[ManagedReport, ...]:
         if parsed is None:
             continue
         if not candidate.is_file():
-            raise RetentionError(f"managed report is not a regular file: {candidate.name}")
+            raise RetentionError(
+                f"managed report is not a regular file: {candidate.name}"
+            )
         discovered.append(ManagedReport(parsed, candidate))
 
     discovered.sort(key=lambda item: (item.report_date, item.path.name), reverse=True)

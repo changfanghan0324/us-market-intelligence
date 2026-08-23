@@ -19,21 +19,29 @@ or dedicated runner invoking the same CLI. Pages can remain the delivery layer.
   macro event are required. No synthetic filler is permitted.
 - Official-free Market News uses a visibly disclosed 14-calendar-day maximum
   lookback; every card retains its actual release date.
+- News and Macro may temporarily fetch allowlisted Federal Reserve, SEC, or BLS
+  HTML linked by the discovery feed. Parsing is bounded and in memory; raw HTML
+  is not written to reports, records, artifacts, or logs.
 - Global Macro uses a visibly disclosed 30-calendar-day source window and rejects
   both older and future-dated events.
 - One exhausted market feed may publish only when the remaining genuine releases
   satisfy the section contract; affected sections/provider runs and the report are
   marked degraded with a fixed-label coverage disclosure.
-- In official-free mode, an open target session has no authoritative earnings
-  calendar and uses the degraded `data_unavailable` state with no predictions.
-- A calendar-capable mode still requires validated earnings coverage on an open
-  target session.
+- In official-free mode, an open target session performs a bounded search over
+  the prior 90 days of SEC 8-K and 6-K filings. Only issuer documents explicitly
+  confirming the target date appear as schedule-only events.
+- This SEC path is not a complete calendar and supplies no consensus estimate,
+  market price, candidate score, or price-direction prediction. A calendar-capable
+  mode still requires validated complete coverage on an open target session.
 - A closed tomorrow uses the exact required closure sentence.
+- A bounded scan with confirmed documents uses `confirmed_events_available`; a
+  successful scan with no confirmation uses
+  `no_confirmed_events_in_bounded_scan` and never means no company reports.
+- Unavailable SEC search or filing material is disclosed as degraded bounded
+  coverage; raw upstream errors and documents remain private.
 - An open session with no candidate scoring at least 7.0 uses a separate
-  no-qualifying-candidate message.
-- `data_unavailable` must never be described as no earnings or no qualifying
-  companies. `no_qualifying_candidates` is reserved for a universe that was
-  actually observed.
+  no-qualifying-candidate message only for an evidence-complete scored universe.
+- `no_qualifying_candidates` is never used for the bounded SEC filing scan.
 - Research and Knowledge Refresh may show an explicit unavailable panel after
   bounded retries.
 - Required-section, schema, rendering, secret-scan, commit, deployment, or public
@@ -65,21 +73,25 @@ raw licensed articles, or unlicensed numeric market datasets.
 Weekly:
 
 - review failed or delayed workflow runs;
-- inspect warning/error counts, feed freshness, and distinct source links;
+- inspect warning/error counts, feed freshness, official-document enrichment,
+  bounded SEC filing coverage, and distinct source links;
 - apply reviewed Dependabot updates;
 - confirm `latest.html` shows the expected date.
 
 Monthly:
 
 - manually dispatch a non-forced health run if the schedule has been quiet;
-- verify the Pages deployment environment and official feed endpoints;
+- verify the Pages deployment environment, official feed/page endpoints, and SEC
+  full-text search/EDGAR access;
 - review request-size, timeout, and concurrency ceilings;
 - update and test the exchange-calendar dependency.
 
 The official-free provider records zero model tokens and zero model web-search
-calls. Network timeouts, response sizes, XML parsing, and concurrency remain
-bounded. The existing usage ledger remains available for a deliberately selected
-metered adapter, but no API billing setup is part of default operations.
+calls, does not require `OPENAI_API_KEY`, and runs without the optional OpenAI
+SDK installed. Network timeouts, response sizes,
+request counts, XML/JSON/HTML parsing, redirects, and concurrency remain bounded.
+The existing usage ledger remains available for a deliberately selected metered
+adapter, but no API billing setup is part of default operations.
 
 GitHub documents that scheduled workflows in a public repository may be disabled
 after 60 days without repository activity. Re-enable the workflow from the

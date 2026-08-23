@@ -21,7 +21,9 @@ def _config() -> OpenAIConfig:
     return OpenAIConfig(allowed_domains=["sec.gov"])
 
 
-def _write_usage(path: Path, *, input_tokens: int, output_tokens: int, calls: int) -> None:
+def _write_usage(
+    path: Path, *, input_tokens: int, output_tokens: int, calls: int
+) -> None:
     path.write_text(
         json.dumps(
             {

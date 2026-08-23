@@ -45,8 +45,12 @@ def dated_mapping(day: date) -> dict[str, object]:
             "previous_session": previous.isoformat(),
             "tomorrow_date": tomorrow.isoformat(),
             "next_open_session": tomorrow.isoformat(),
-            "tomorrow_opens_at": (generated + timedelta(days=1, hours=1, minutes=25)).isoformat(),
-            "tomorrow_closes_at": (generated + timedelta(days=1, hours=7, minutes=55)).isoformat(),
+            "tomorrow_opens_at": (
+                generated + timedelta(days=1, hours=1, minutes=25)
+            ).isoformat(),
+            "tomorrow_closes_at": (
+                generated + timedelta(days=1, hours=7, minutes=55)
+            ).isoformat(),
         }
     )
     earnings = report["earnings"]
@@ -57,7 +61,9 @@ def dated_mapping(day: date) -> dict[str, object]:
     prediction = candidate["prediction"]
     prediction["prediction_id"] = f"pred_{day.strftime('%Y%m%d')}"
     prediction["event_window"]["starts_at"] = candidate["earnings_at"]
-    prediction["event_window"]["ends_at"] = (generated + timedelta(days=2, hours=8)).isoformat()
+    prediction["event_window"]["ends_at"] = (
+        generated + timedelta(days=2, hours=8)
+    ).isoformat()
     for item in report["provider_runs"]:
         item["request_id"] = f"req_{day.strftime('%Y%m%d')}"
     return report
@@ -71,7 +77,9 @@ def tree_snapshot(root: Path) -> dict[str, bytes]:
     }
 
 
-def test_build_creates_full_copy_latest_and_sha_verified_manifest(tmp_path: Path) -> None:
+def test_build_creates_full_copy_latest_and_sha_verified_manifest(
+    tmp_path: Path,
+) -> None:
     result = SiteBuilder(tmp_path).build(sample_report())
 
     manifest = json.loads(result.manifest.read_text(encoding="utf-8"))
@@ -101,7 +109,9 @@ def test_second_identical_build_is_a_noop(tmp_path: Path) -> None:
 
     assert first.changed is True
     assert second.changed is False
-    usage = json.loads((tmp_path / "records" / "usage.json").read_text(encoding="utf-8"))
+    usage = json.loads(
+        (tmp_path / "records" / "usage.json").read_text(encoding="utf-8")
+    )
     assert len(usage["reports"]) == 1
 
 
@@ -125,9 +135,7 @@ def test_tampered_prior_report_blocks_next_day_before_any_mutation(
     assert not (
         tmp_path / "site" / "reports" / "daily_market_report_2026-08-20.html"
     ).exists()
-    assert not (
-        tmp_path / "records" / "daily_market_report_2026-08-20.json"
-    ).exists()
+    assert not (tmp_path / "records" / "daily_market_report_2026-08-20.json").exists()
 
 
 def test_tampered_prior_record_blocks_next_day_before_any_mutation(
@@ -135,9 +143,7 @@ def test_tampered_prior_record_blocks_next_day_before_any_mutation(
 ) -> None:
     builder = SiteBuilder(tmp_path)
     builder.build(dated_mapping(date(2026, 8, 19)))
-    prior_record = (
-        tmp_path / "records" / "daily_market_report_2026-08-19.json"
-    )
+    prior_record = tmp_path / "records" / "daily_market_report_2026-08-19.json"
     prior_record.write_bytes(prior_record.read_bytes() + b"\n")
     site_before = tree_snapshot(tmp_path / "site")
     records_before = tree_snapshot(tmp_path / "records")
@@ -224,9 +230,13 @@ def test_public_site_keeps_eight_but_records_and_predictions_are_append_only(
         (tmp_path / "records").glob("daily_market_report_????-??-??.json")
     )
     prediction_lines = (
-        tmp_path / "records" / "predictions.jsonl"
-    ).read_text(encoding="utf-8").splitlines()
-    usage = json.loads((tmp_path / "records" / "usage.json").read_text(encoding="utf-8"))
+        (tmp_path / "records" / "predictions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    usage = json.loads(
+        (tmp_path / "records" / "usage.json").read_text(encoding="utf-8")
+    )
 
     assert len(public_reports) == 8
     assert public_reports[0].name.endswith("2026-08-03.html")
@@ -235,7 +245,9 @@ def test_public_site_keeps_eight_but_records_and_predictions_are_append_only(
     assert len(prediction_lines) == 10
     assert len(usage["reports"]) == 10
     assert usage["monthly"]["2026-08"]["reports"] == 10
-    assert (tmp_path / "site" / "latest.html").read_bytes() == public_reports[-1].read_bytes()
+    assert (tmp_path / "site" / "latest.html").read_bytes() == public_reports[
+        -1
+    ].read_bytes()
 
 
 def test_private_payload_never_reaches_site_records_or_ledgers(tmp_path: Path) -> None:
@@ -291,7 +303,9 @@ def test_exact_runtime_secret_is_rejected_without_a_known_prefix(
     assert not (tmp_path / "records").exists()
 
 
-def test_symlink_in_managed_output_is_rejected_without_following_it(tmp_path: Path) -> None:
+def test_symlink_in_managed_output_is_rejected_without_following_it(
+    tmp_path: Path,
+) -> None:
     site_reports = tmp_path / "site" / "reports"
     site_reports.mkdir(parents=True)
     outside = tmp_path / "outside.txt"
@@ -318,11 +332,17 @@ def test_force_rerun_adds_immutable_record_revision_usage_and_prediction(
 
     result = builder.build(revised, force=True)
 
-    records = sorted((tmp_path / "records").glob("daily_market_report_2026-08-19*.json"))
-    usage = json.loads((tmp_path / "records" / "usage.json").read_text(encoding="utf-8"))
+    records = sorted(
+        (tmp_path / "records").glob("daily_market_report_2026-08-19*.json")
+    )
+    usage = json.loads(
+        (tmp_path / "records" / "usage.json").read_text(encoding="utf-8")
+    )
     predictions = (
-        tmp_path / "records" / "predictions.jsonl"
-    ).read_text(encoding="utf-8").splitlines()
+        (tmp_path / "records" / "predictions.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
     assert result.record.name.startswith("daily_market_report_2026-08-19_revision_")
     assert len(records) == 2
     assert len(usage["reports"]) == 2

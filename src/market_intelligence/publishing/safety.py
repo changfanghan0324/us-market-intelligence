@@ -112,11 +112,15 @@ def assert_safe_tree(root: Path, *, blocked_values: Iterable[str] = ()) -> None:
         if path.is_dir():
             continue
         if not path.is_file():
-            raise PublicArtifactSafetyError("non-regular files are not allowed in staging")
+            raise PublicArtifactSafetyError(
+                "non-regular files are not allowed in staging"
+            )
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
-            raise PublicArtifactSafetyError("public staging contains a binary file") from exc
+            raise PublicArtifactSafetyError(
+                "public staging contains a binary file"
+            ) from exc
         assert_public_text(text, label=path.name, blocked_values=exact_secrets)
         if path.suffix.casefold() == ".html":
             assert_standalone_html(

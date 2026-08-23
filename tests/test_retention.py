@@ -25,7 +25,9 @@ def _make_reports(directory: Path, count: int = 10) -> list[Path]:
     return created
 
 
-def test_retention_keeps_newest_eight_and_ignores_unrelated_files(tmp_path: Path) -> None:
+def test_retention_keeps_newest_eight_and_ignores_unrelated_files(
+    tmp_path: Path,
+) -> None:
     reports = tmp_path / "reports"
     created = _make_reports(reports)
     unrelated = reports / "daily_market_report_2020-01-01.html.backup"

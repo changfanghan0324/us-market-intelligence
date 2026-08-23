@@ -13,6 +13,7 @@ from market_intelligence.domain.models import (
     NO_QUALIFYING_EARNINGS_MESSAGE,
     MarketContext,
 )
+from market_intelligence.domain.validation import iter_report_sources
 from market_intelligence.errors import ReportValidationError
 from market_intelligence.pipeline import (
     DailyReportPipeline,
@@ -168,6 +169,41 @@ def earnings_data(*, qualifying: bool = True) -> EarningsResponse:
                     "sources": [source(20)],
                 }
             ]
+        }
+    )
+
+
+def confirmed_earnings_data() -> EarningsResponse:
+    filing_source = source(
+        21,
+        publisher="U.S. Securities and Exchange Commission",
+        domain="www.sec.gov",
+    )
+    filing_source["url"] = (
+        "https://www.sec.gov/Archives/edgar/data/1/example-exhibit.htm"
+    )
+    return EarningsResponse.model_validate(
+        {
+            "candidates": [],
+            "confirmed_events": [
+                {
+                    "ticker": "EXM",
+                    "company_name": "Example Holdings",
+                    "cik": "0000000001",
+                    "form": "8-K",
+                    "filing_date": "2026-08-19",
+                    "target_date": "2026-08-20",
+                    "confirmation_basis": "earnings_conference_call",
+                    "release_timing": "time_not_confirmed",
+                    "scheduled_release_at": None,
+                    "conference_call_at": "2026-08-20T12:00:00Z",
+                    "confirmation_summary": (
+                        "The issuer filing confirms a conference call on the target date, "
+                        "but it does not confirm the results-release time."
+                    ),
+                    "sources": [filing_source],
+                }
+            ],
         }
     )
 
@@ -341,7 +377,9 @@ def closed_market_context() -> ReportContext:
     return ReportContext(market_context=market, generated_at=generated)
 
 
-def complete_outcomes(*, earnings_qualifying: bool = True) -> dict[ResearchSection, Any]:
+def complete_outcomes(
+    *, earnings_qualifying: bool = True
+) -> dict[ResearchSection, Any]:
     return {
         ResearchSection.MARKET_NEWS: provider_result(
             news_data(), ResearchSection.MARKET_NEWS, 3
@@ -361,7 +399,9 @@ def complete_outcomes(*, earnings_qualifying: bool = True) -> dict[ResearchSecti
     }
 
 
-def test_complete_open_market_report_has_required_sections_and_unavailable_metrics() -> None:
+def test_complete_open_market_report_has_required_sections_and_unavailable_metrics() -> (
+    None
+):
     provider = FakeResearchProvider(complete_outcomes())
 
     report = DailyReportPipeline(provider).generate(open_market_context())
@@ -406,7 +446,9 @@ def test_closed_market_skips_earnings_call_and_uses_exact_sentence() -> None:
     assert report.earnings.message == CLOSED_MARKET_MESSAGE
     assert report.earnings.candidates == []
     earnings_run = next(
-        run for run in report.provider_runs if run.section == ResearchSection.EARNINGS.value
+        run
+        for run in report.provider_runs
+        if run.section == ResearchSection.EARNINGS.value
     )
     assert earnings_run.provider == "deterministic policy"
 
@@ -421,7 +463,81 @@ def test_open_market_with_no_qualifying_candidates_is_not_closed_or_failed() -> 
     assert report.validation_status == "valid"
 
 
-def test_free_mode_skips_unavailable_earnings_calendar_without_claiming_no_events() -> None:
+def test_confirmed_earnings_event_source_survives_canonical_pipeline() -> None:
+    outcomes = complete_outcomes(earnings_qualifying=False)
+    outcomes[ResearchSection.EARNINGS] = provider_result(
+        confirmed_earnings_data(),
+        ResearchSection.EARNINGS,
+        1,
+        provider="official_public_sources",
+    )
+
+    report = DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+        open_market_context()
+    )
+
+    event = report.earnings.confirmed_events[0]
+    assert report.earnings.status == "confirmed_events_available"
+    assert event.scheduled_release_at is None
+    assert event.conference_call_at == datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+    assert str(event.sources[0].url) == (
+        "https://www.sec.gov/Archives/edgar/data/1/example-exhibit.htm"
+    )
+    assert event.sources[0] in tuple(iter_report_sources(report))
+
+
+def test_invalid_confirmed_event_is_contained_at_the_item_boundary() -> None:
+    outcomes = complete_outcomes(earnings_qualifying=False)
+    earnings = confirmed_earnings_data()
+    invalid_event = earnings.confirmed_events[0].model_copy(
+        update={"conference_call_at": datetime(2026, 8, 20, 0, 30, tzinfo=UTC)}
+    )
+    outcomes[ResearchSection.EARNINGS] = provider_result(
+        earnings.model_copy(update={"confirmed_events": [invalid_event]}),
+        ResearchSection.EARNINGS,
+        1,
+        provider="official_public_sources",
+    )
+
+    report = DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+        open_market_context()
+    )
+
+    assert report.earnings.status == "no_confirmed_events_in_bounded_scan"
+    assert report.earnings.confirmed_events == []
+
+
+def test_partial_sec_document_coverage_keeps_confirmed_events_publishable() -> None:
+    warning_code = "sec_earnings_documents_incomplete"
+    outcomes = complete_outcomes(earnings_qualifying=False)
+    outcomes[ResearchSection.EARNINGS] = provider_result(
+        confirmed_earnings_data(),
+        ResearchSection.EARNINGS,
+        1,
+        provider="official_public_sources",
+        warning_codes=(warning_code,),
+    )
+
+    report = DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+        open_market_context()
+    )
+
+    assert report.earnings.status == "confirmed_events_available"
+    assert len(report.earnings.confirmed_events) == 1
+    assert report.section_statuses.earnings.status == "degraded"
+    assert report.section_statuses.earnings.detail in report.warnings
+    assert "not a complete market calendar" in report.section_statuses.earnings.detail
+    earnings_run = next(
+        run for run in report.provider_runs if run.section == "earnings"
+    )
+    assert earnings_run.status == "degraded"
+    assert earnings_run.warning_codes == [warning_code]
+    assert report.validation_status == "degraded"
+
+
+def test_free_mode_skips_unavailable_earnings_calendar_without_claiming_no_events() -> (
+    None
+):
     provider = FakeResearchProvider(complete_outcomes())
     policy = PipelinePolicy(earnings_calendar_available=False)
 
@@ -437,12 +553,11 @@ def test_free_mode_skips_unavailable_earnings_calendar_without_claiming_no_event
     assert report.validation_status == "degraded"
     assert EARNINGS_DATA_UNAVAILABLE_MESSAGE in report.warnings
     assert report.section_statuses.earnings.status == "degraded"
-    assert (
-        report.section_statuses.earnings.detail
-        == EARNINGS_DATA_UNAVAILABLE_MESSAGE
-    )
+    assert report.section_statuses.earnings.detail == EARNINGS_DATA_UNAVAILABLE_MESSAGE
     earnings_run = next(
-        run for run in report.provider_runs if run.section == ResearchSection.EARNINGS.value
+        run
+        for run in report.provider_runs
+        if run.section == ResearchSection.EARNINGS.value
     )
     assert earnings_run.status == "skipped"
     assert earnings_run.attempts == 0
@@ -459,9 +574,7 @@ def test_earnings_calendar_capability_rejects_non_boolean_values() -> None:
     ("value", "error"),
     [(0, ValueError), (31, ValueError), (1.5, TypeError), (True, TypeError)],
 )
-def test_market_news_lookback_is_bounded(
-    value: Any, error: type[Exception]
-) -> None:
+def test_market_news_lookback_is_bounded(value: Any, error: type[Exception]) -> None:
     with pytest.raises(error, match="market news lookback must be"):
         PipelinePolicy(market_news_lookback_days=value)  # type: ignore[arg-type]
 
@@ -470,20 +583,18 @@ def test_market_news_lookback_is_bounded(
     ("value", "error"),
     [(0, ValueError), (91, ValueError), (30.5, TypeError), (False, TypeError)],
 )
-def test_global_macro_lookback_is_bounded(
-    value: Any, error: type[Exception]
-) -> None:
+def test_global_macro_lookback_is_bounded(value: Any, error: type[Exception]) -> None:
     with pytest.raises(error, match="global macro lookback must be"):
         PipelinePolicy(global_macro_lookback_days=value)  # type: ignore[arg-type]
 
 
-def test_extended_news_lookback_accepts_genuine_older_release_and_discloses_it() -> None:
+def test_extended_news_lookback_accepts_genuine_older_release_and_discloses_it() -> (
+    None
+):
     outcomes = complete_outcomes()
     news = outcomes[ResearchSection.MARKET_NEWS].data
     candidates = list(news.candidates)
-    candidates[2] = candidates[2].model_copy(
-        update={"event_date": date(2026, 8, 12)}
-    )
+    candidates[2] = candidates[2].model_copy(update={"event_date": date(2026, 8, 12)})
     outcomes[ResearchSection.MARKET_NEWS] = provider_result(
         news.model_copy(update={"candidates": candidates}),
         ResearchSection.MARKET_NEWS,
@@ -525,7 +636,9 @@ def test_global_macro_must_be_inside_bounded_past_window(event_date: date) -> No
         )
 
 
-def test_partial_official_feed_outage_degrades_required_sections_transparently() -> None:
+def test_partial_official_feed_outage_degrades_required_sections_transparently() -> (
+    None
+):
     outcomes = complete_outcomes()
     warning_codes = ("official_feed_unavailable_bls_latest",) * 2
     outcomes[ResearchSection.MARKET_NEWS] = provider_result(
@@ -586,6 +699,21 @@ def test_unknown_official_feed_warning_fails_closed() -> None:
         )
 
 
+def test_warning_code_with_unrecognized_prefix_fails_closed() -> None:
+    outcomes = complete_outcomes()
+    outcomes[ResearchSection.EARNINGS] = provider_result(
+        earnings_data(),
+        ResearchSection.EARNINGS,
+        1,
+        warning_codes=("unexpected_warning_namespace",),
+    )
+
+    with pytest.raises(ReportValidationError, match="unknown warning code"):
+        DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+            open_market_context()
+        )
+
+
 def test_optional_failures_become_explicit_degraded_sections() -> None:
     outcomes = complete_outcomes()
     outcomes[ResearchSection.MARKET_NEWS] = provider_result(
@@ -621,9 +749,7 @@ def test_optional_failures_become_explicit_degraded_sections() -> None:
             ResearchSection.KNOWLEDGE_REFRESH.value,
         }
     }
-    assert {
-        run.provider for run in optional_runs.values()
-    } == {"official_feeds"}
+    assert {run.provider for run in optional_runs.values()} == {"official_feeds"}
     assert optional_runs[ResearchSection.RESEARCH_DISCOVERY.value].attempts == 2
     assert optional_runs[ResearchSection.KNOWLEDGE_REFRESH.value].attempts == 0
 
@@ -726,7 +852,9 @@ def test_fewer_than_three_valid_news_items_fails_closed() -> None:
     )
 
     with pytest.raises(ReportValidationError):
-        DailyReportPipeline(FakeResearchProvider(outcomes)).generate(open_market_context())
+        DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+            open_market_context()
+        )
 
 
 class LicensedMarketData:
@@ -753,9 +881,13 @@ class LicensedMarketData:
                     source_evidence_id=evidence.evidence_id,
                     as_of=as_of,
                 ),
-                market_cap=MarketMetric.unavailable("Market capitalization is unavailable."),
+                market_cap=MarketMetric.unavailable(
+                    "Market capitalization is unavailable."
+                ),
                 expected_eps=MarketMetric.unavailable("Consensus EPS is unavailable."),
-                expected_revenue=MarketMetric.unavailable("Consensus revenue is unavailable."),
+                expected_revenue=MarketMetric.unavailable(
+                    "Consensus revenue is unavailable."
+                ),
                 evidence=(evidence,),
             )
         }

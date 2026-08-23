@@ -412,9 +412,7 @@ def _verify_predictions(
             raise _fail("prediction ledger report ID does not match its date")
         _aware_timestamp(entry.get("generated_at"), label="prediction generated time")
         if entry.get("earnings_at") != "":
-            _aware_timestamp(
-                entry.get("earnings_at"), label="prediction earnings time"
-            )
+            _aware_timestamp(entry.get("earnings_at"), label="prediction earnings time")
         prediction_id = entry.get("prediction_id")
         prediction = entry.get("prediction")
         if (

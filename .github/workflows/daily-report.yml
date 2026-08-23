@@ -56,6 +56,14 @@ jobs:
         working-directory: source
         run: uv sync --frozen --no-dev
 
+      - name: Verify free runtime excludes optional OpenAI SDK
+        working-directory: source
+        run: >-
+          uv run --frozen --no-dev python -c
+          'import importlib.util;
+          assert importlib.util.find_spec("openai") is None;
+          import market_intelligence.cli'
+
       - name: Prepare dedicated reports branch worktree
         id: reports
         shell: bash

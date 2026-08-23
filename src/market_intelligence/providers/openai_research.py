@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, ClassVar, Literal, TypeVar, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
+from zoneinfo import ZoneInfo
 
 from pydantic import (
     AfterValidator,
@@ -51,6 +52,11 @@ from .base import (
 
 BANNED_MARKET_DATA_FIELDS = frozenset(
     {"current_price", "market_cap", "expected_eps", "expected_revenue"}
+)
+
+OPENAI_OPTIONAL_DEPENDENCY_MESSAGE = (
+    "The optional OpenAI provider is not installed. Run `uv sync --extra openai` "
+    "and invoke it with `uv run --extra openai`."
 )
 
 TIER_1_DOMAINS = frozenset(
@@ -338,7 +344,7 @@ class AIMarketNewsItem(AIModel):
     event_date: date
     market_impact: Literal["high", "medium", "low"]
     affected_sectors: list[str] = Field(min_length=1, max_length=8)
-    summary: AISubstantiveText = Field(min_length=2, max_length=100)
+    summary: AISubstantiveText = Field(min_length=2, max_length=1_200)
     bullish_case: AISubstantiveText = Field(min_length=2, max_length=600)
     bearish_case: AISubstantiveText = Field(min_length=2, max_length=600)
     attention_components: AINewsAttentionComponents
@@ -411,15 +417,61 @@ class AIEarningsCandidate(AIModel):
         return self
 
 
+class AIConfirmedEarningsEvent(AIModel):
+    ticker: str = Field(pattern=r"^[A-Z][A-Z0-9.\-]{0,9}$")
+    company_name: str = Field(min_length=2, max_length=200)
+    cik: str = Field(pattern=r"^[0-9]{10}$")
+    form: Literal["8-K", "8-K/A", "6-K", "6-K/A"]
+    filing_date: date
+    target_date: date
+    confirmation_basis: Literal[
+        "scheduled_results_release",
+        "board_meeting_results",
+        "earnings_conference_call",
+    ]
+    release_timing: Literal[
+        "before_market", "during_market", "after_market", "time_not_confirmed"
+    ]
+    scheduled_release_at: datetime | None
+    conference_call_at: datetime | None
+    confirmation_summary: AISubstantiveText = Field(min_length=2, max_length=900)
+    sources: list[AIEvidence] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode="after")
+    def event_times_and_sources_are_consistent(self) -> AIConfirmedEarningsEvent:
+        _reject_duplicate_urls(self.sources)
+        for value in (self.scheduled_release_at, self.conference_call_at):
+            if value is not None:
+                if value.tzinfo is None or value.utcoffset() is None:
+                    raise ValueError(
+                        "confirmed earnings timestamps must be timezone-aware"
+                    )
+                if (
+                    value.astimezone(ZoneInfo("America/New_York")).date()
+                    != self.target_date
+                ):
+                    raise ValueError(
+                        "confirmed earnings timestamp must match the New York target date"
+                    )
+        if self.release_timing == "time_not_confirmed" and self.scheduled_release_at:
+            raise ValueError("unconfirmed release timing cannot include an exact time")
+        if self.filing_date >= self.target_date:
+            raise ValueError("confirming filing must precede the target date")
+        return self
+
+
 class EarningsResponse(AIModel):
     candidates: list[AIEarningsCandidate] = Field(max_length=15)
+    confirmed_events: list[AIConfirmedEarningsEvent] = Field(
+        default_factory=list, max_length=24
+    )
 
 
 class AIGlobalMacroEvent(AIModel):
     global_event: AICompactText = Field(min_length=2, max_length=200)
     event_date: date
     market_impact: Literal["high", "medium", "low"]
-    summary: AISubstantiveText = Field(min_length=2, max_length=700)
+    summary: AISubstantiveText = Field(min_length=2, max_length=1_200)
     affected_assets: list[
         Literal["stocks", "bonds", "usd", "commodities", "credit", "other"]
     ] = Field(min_length=1, max_length=6)
@@ -448,7 +500,7 @@ class AIResearchApplication(AIModel):
 class AIResearchDiscovery(AIModel):
     research_title: AICompactText = Field(min_length=2, max_length=200)
     research_date: date
-    simple_explanation: AISubstantiveText = Field(min_length=2, max_length=900)
+    simple_explanation: AISubstantiveText = Field(min_length=2, max_length=2_000)
     key_insight: AISubstantiveText = Field(min_length=2, max_length=700)
     applications: list[AIResearchApplication] = Field(min_length=4, max_length=4)
     has_current_market_implication: bool
@@ -479,9 +531,7 @@ class AIKnowledgeRefresh(AIModel):
     concept: AICompactText = Field(min_length=2, max_length=160)
     historical_background: AISubstantiveText = Field(min_length=2, max_length=800)
     simple_explanation: AISubstantiveText = Field(min_length=2, max_length=900)
-    why_it_still_matters_today: AISubstantiveText = Field(
-        min_length=2, max_length=800
-    )
+    why_it_still_matters_today: AISubstantiveText = Field(min_length=2, max_length=800)
     real_world_example: AISubstantiveText = Field(min_length=2, max_length=800)
 
 
@@ -513,9 +563,7 @@ class ResearchRequest:
 @dataclass(frozen=True, slots=True)
 class OpenAIResearchSettings:
     model: str = "gpt-5.6-terra"
-    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = (
-        "low"
-    )
+    reasoning_effort: Literal["none", "low", "medium", "high", "xhigh", "max"] = "low"
     search_context_size: Literal["low", "medium", "high"] = "low"
     max_output_tokens: int = 3_200
     max_tool_calls: int = 4
@@ -524,7 +572,9 @@ class OpenAIResearchSettings:
     total_deadline_seconds: float = 210.0
     base_retry_delay_seconds: float = 0.5
     max_retry_delay_seconds: float = 8.0
-    domain_overrides: Mapping[ResearchSection, tuple[str, ...]] = field(default_factory=dict)
+    domain_overrides: Mapping[ResearchSection, tuple[str, ...]] = field(
+        default_factory=dict
+    )
 
     MAX_OUTPUT_TOKEN_CEILING: ClassVar[int] = 8_000
     MAX_TOOL_CALL_CEILING: ClassVar[int] = 8
@@ -576,7 +626,12 @@ class OpenAIResearchProvider:
         self._monotonic = monotonic
         self._usage_observer = usage_observer
         if client is None:
-            from openai import OpenAI
+            try:
+                from openai import OpenAI
+            except ModuleNotFoundError as error:
+                if error.name != "openai":
+                    raise
+                raise ConfigurationError(OPENAI_OPTIONAL_DEPENDENCY_MESSAGE) from None
 
             client = OpenAI(
                 api_key=api_key,
@@ -738,7 +793,9 @@ class OpenAIResearchProvider:
                     request_ids=tuple(dict.fromkeys(observed_request_ids)),
                     usage=accumulated_usage,
                 )
-                return ProviderResult(data=parsed, accessed_at=accessed_at, metadata=metadata)
+                return ProviderResult(
+                    data=parsed, accessed_at=accessed_at, metadata=metadata
+                )
             except Exception as exc:
                 if isinstance(exc, ValidationError | EvidenceValidationError):
                     # The API can satisfy the wire schema while a runtime-only
@@ -838,7 +895,9 @@ class OpenAIResearchProvider:
                     "Fewer than three market-news candidates passed source validation.",
                     section=section,
                 )
-            return cast(ResponseModel, data.model_copy(update={"candidates": valid_news}))
+            return cast(
+                ResponseModel, data.model_copy(update={"candidates": valid_news})
+            )
         if isinstance(data, EarningsResponse):
             valid_earnings = []
             for item in data.candidates:
@@ -850,13 +909,41 @@ class OpenAIResearchProvider:
                 )
                 if not valid_sources:
                     continue
-                valid_earnings.append(item.model_copy(update={"sources": valid_sources}))
+                valid_earnings.append(
+                    item.model_copy(update={"sources": valid_sources})
+                )
             if data.candidates and not valid_earnings:
                 raise EvidenceValidationError(
                     "No earnings candidate passed source validation.", section=section
                 )
+            valid_events = []
+            for event in data.confirmed_events:
+                valid_sources = _validated_evidence_sources(
+                    event.sources,
+                    # These objects assert issuer identity, SEC form type, and
+                    # an SEC-confirmed schedule. News or issuer-IR links may
+                    # support candidates, but only an SEC host can substantiate
+                    # this stronger public label.
+                    domains=("sec.gov",),
+                    section=section,
+                    response_source_urls=response_source_urls,
+                )
+                if not valid_sources:
+                    continue
+                valid_events.append(event.model_copy(update={"sources": valid_sources}))
+            if data.confirmed_events and not valid_events:
+                raise EvidenceValidationError(
+                    "No confirmed earnings event passed source validation.",
+                    section=section,
+                )
             return cast(
-                ResponseModel, data.model_copy(update={"candidates": valid_earnings})
+                ResponseModel,
+                data.model_copy(
+                    update={
+                        "candidates": valid_earnings,
+                        "confirmed_events": valid_events,
+                    }
+                ),
             )
         if isinstance(data, GlobalMacroResponse):
             valid_sources = _validated_evidence_sources(
@@ -885,9 +972,7 @@ class OpenAIResearchProvider:
                     section=section,
                 )
             discovery = data.discovery.model_copy(update={"sources": valid_sources})
-            return cast(
-                ResponseModel, data.model_copy(update={"discovery": discovery})
-            )
+            return cast(ResponseModel, data.model_copy(update={"discovery": discovery}))
         _validate_item_evidence(
             tuple(iter_evidence(data)),
             domains=domains,
@@ -1015,9 +1100,14 @@ def source_publisher_for(evidence: AIEvidence) -> str:
 
 
 def iter_evidence(data: AIModel) -> Iterable[AIEvidence]:
-    if isinstance(data, MarketNewsResponse | EarningsResponse):
+    if isinstance(data, MarketNewsResponse):
         for item in data.candidates:
             yield from item.sources
+    elif isinstance(data, EarningsResponse):
+        for item in data.candidates:
+            yield from item.sources
+        for event in data.confirmed_events:
+            yield from event.sources
     elif isinstance(data, GlobalMacroResponse):
         yield from data.event.sources
     elif isinstance(data, ResearchDiscoveryResponse):
@@ -1034,7 +1124,9 @@ def assert_ai_schema_has_no_market_data_fields(model: type[BaseModel]) -> None:
                 forbidden = BANNED_MARKET_DATA_FIELDS.intersection(properties)
                 if forbidden:
                     names = ", ".join(sorted(forbidden))
-                    raise AssertionError(f"AI schema exposes licensed market-data fields: {names}")
+                    raise AssertionError(
+                        f"AI schema exposes licensed market-data fields: {names}"
+                    )
             for child in value.values():
                 walk(child)
         elif isinstance(value, list):
@@ -1245,8 +1337,9 @@ def _market_news_prompt(request: ResearchRequest) -> str:
         "Find 3-5 concise, evidence-valid candidates covering material US-market events from the "
         f"previous NYSE session ({previous.isoformat()}) through the report cutoff. Avoid "
         "duplicates and routine low-impact headlines. Score the five attention components "
-        "0-10 independently; do not provide or rank by a total score. Keep each summary "
-        "at or below 100 characters and keep every narrative field concise."
+        "0-10 independently; do not provide or rank by a total score. Write each summary "
+        "as one source-grounded 4-7 sentence paragraph covering the event, concrete facts, "
+        "transmission mechanism, and important limitation; do not merely restate the title."
     )
 
 
@@ -1266,8 +1359,8 @@ def _global_macro_prompt(request: ResearchRequest) -> str:
     return (
         f"Select exactly one global macro event most consequential to markets as of "
         f"{request.generated_at.isoformat()}. Cover transmission across all four required "
-        "asset classes—stocks, bonds, USD, and commodities—and provide evidence-linked "
-        "six-question impact analysis."
+        "asset classes—stocks, bonds, USD, and commodities—and provide one detailed, "
+        "source-grounded paragraph plus evidence-linked six-question impact analysis."
     )
 
 
@@ -1276,7 +1369,8 @@ def _research_discovery_prompt(request: ResearchRequest) -> str:
         "Find exactly one research paper, technical breakthrough, or genuinely new "
         f"business insight dated from {(request.report_date - timedelta(days=90)).isoformat()} "
         f"through {request.report_date.isoformat()}, "
-        "rather than a news recap. Explain it plainly, state what belief it "
+        "rather than a news recap. Explain the research in one 4-7 sentence paragraph "
+        "covering its question, method or data, reported result, and limitation; state what belief it "
         "changes, and return exactly one concrete application for each structured category: "
         "finance, investing, business_strategy, and technology. Add impact analysis only if "
         "you assert a current market implication."
@@ -1303,6 +1397,7 @@ for _schema in (
 
 __all__ = [
     "BANNED_MARKET_DATA_FIELDS",
+    "AIConfirmedEarningsEvent",
     "AIEarningsCandidate",
     "AIEvidence",
     "AIGlobalMacroEvent",

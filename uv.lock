@@ -771,7 +771,6 @@ source = { editable = "." }
 dependencies = [
     { name = "exchange-calendars" },
     { name = "jinja2" },
-    { name = "openai" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "tzdata" },
@@ -779,16 +778,21 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
+    { name = "openai" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+]
+openai = [
+    { name = "openai" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "exchange-calendars", specifier = "==4.13.2" },
     { name = "jinja2", specifier = "==3.1.6" },
-    { name = "openai", specifier = "==3.3.1" },
+    { name = "openai", marker = "extra == 'dev'", specifier = "==3.3.1" },
+    { name = "openai", marker = "extra == 'openai'", specifier = "==3.3.1" },
     { name = "pydantic", specifier = "==2.13.4" },
     { name = "pytest", marker = "extra == 'dev'", specifier = "==9.1.1" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = "==7.0.0" },
@@ -796,4 +800,4 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.4" },
     { name = "tzdata", specifier = "==2026.3" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["openai", "dev"]

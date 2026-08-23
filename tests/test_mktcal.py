@@ -109,6 +109,8 @@ def test_schedule_requires_an_exact_slot_and_manual_dispatch_bypasses() -> None:
         should_run_for_event("schedule")
 
 
-def test_calendar_fails_closed_outside_dependency_coverage(calendar: NYSECalendar) -> None:
+def test_calendar_fails_closed_outside_dependency_coverage(
+    calendar: NYSECalendar,
+) -> None:
     with pytest.raises(CalendarCoverageError, match="coverage"):
         calendar.is_session(date(2100, 1, 4))

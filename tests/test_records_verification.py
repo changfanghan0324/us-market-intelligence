@@ -65,9 +65,7 @@ def test_records_verifier_accepts_unconfirmed_earnings_time(
     candidate = document["earnings"]["candidates"][0]
     candidate["release_timing"] = release_timing
     candidate["earnings_at"] = None
-    candidate["prediction"]["event_window"]["anchor_basis"] = (
-        "market_window_proxy"
-    )
+    candidate["prediction"]["event_window"]["anchor_basis"] = "market_window_proxy"
     report = DailyReport.model_validate_json(json.dumps(document))
 
     SiteBuilder(tmp_path).build(report)

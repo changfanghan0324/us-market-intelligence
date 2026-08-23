@@ -185,7 +185,9 @@ def test_openai_mode_requires_explicit_non_secret_configuration() -> None:
         AppConfig.model_validate(raw)
 
 
-def test_official_free_mode_rejects_unknown_provider_and_needs_no_openai_config() -> None:
+def test_official_free_mode_rejects_unknown_provider_and_needs_no_openai_config() -> (
+    None
+):
     raw = valid_config_data()
     raw.pop("openai")
     assert AppConfig.model_validate(raw).openai is None
@@ -255,7 +257,10 @@ def test_company_ir_domains_must_also_be_globally_allowlisted() -> None:
     }  # type: ignore[arg-type]
     config = AppConfig.model_validate(raw)
     assert config.openai.company_ir_domains == ["investor.example.com"]
-    raw["openai"] = {**valid_config_data()["openai"], "allowed_domains": ["SEC.gov", "sec.gov"]}  # type: ignore[arg-type]
+    raw["openai"] = {
+        **valid_config_data()["openai"],
+        "allowed_domains": ["SEC.gov", "sec.gov"],
+    }  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
         AppConfig.model_validate(raw)
 

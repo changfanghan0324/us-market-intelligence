@@ -15,7 +15,8 @@ fixed configuration preflight (no secret in default mode)
 NYSE calendar context
         |
         v
-official Federal Reserve / SEC / BLS RSS metadata
+official Federal Reserve / SEC / BLS RSS discovery
+        + bounded allowlisted HTML and SEC filing research
         |
         v
 deterministic mapping + strict source/schema validation + scoring
@@ -43,7 +44,8 @@ a single daily job does not need.
 
 ## Publication invariants
 
-- Default `official_free` mode has no API credential or model-API call.
+- Default `official_free` mode has no API credential, model-API call, or installed
+  OpenAI SDK. The SDK is isolated in an optional package extra.
 - The committed workflow does not expose `OPENAI_API_KEY`. The optional OpenAI
   adapter requires separate reviewed workflow wiring before production use.
 - Missing required configuration exits before provider calls or publication.
@@ -58,18 +60,22 @@ a single daily job does not need.
 - Official-feed analysis components and totals are calculated by deterministic
   code. The optional OpenAI adapter may propose bounded components, but code
   still calculates its totals and selection.
-- Neither RSS metadata nor an AI schema can provide numeric quote or consensus
-  fields. Only a separately licensed market-data adapter can populate them.
+- Neither official-source extraction nor an AI schema can provide licensed
+  numeric quote or consensus fields. Only a separately licensed market-data
+  adapter can populate them.
 - Source publishers are derived from validated hosts; model text cannot create
   filenames, IDs, paths, or publisher identities.
 - Known source publication times must be at or before the immutable report
-  cutoff. News summaries are capped at 100 characters; macro analysis covers
-  Stocks, Bonds, USD, and Commodities; research covers four explicit application
-  categories and a 90-day recency window.
-- The official-free source set has no authoritative upcoming-earnings calendar.
-  An open target session therefore uses `data_unavailable`, coverage
-  `unavailable`, no candidate/prediction, a degraded section status, and a public
-  warning. It is never converted into "no qualifying candidates."
+  cutoff. News and macro summaries use bounded paragraph-length digests derived
+  from official documents; macro analysis covers Stocks, Bonds, USD, and
+  Commodities; research covers four explicit application categories and a 90-day
+  recency window.
+- The official-free source set has no authoritative complete upcoming-earnings
+  calendar. For an open target session it searches the prior 90 days of SEC 8-K
+  and 6-K filings and publishes only issuer-confirmed next-session events under
+  `bounded_research`. An empty scan is explicitly not a no-earnings or
+  complete-universe conclusion; filing-only events receive no consensus data,
+  market-price data, score, or price-direction prediction.
 - In a future calendar-enabled adapter, unknown earnings release times stay
   unknown and any market-open/close evaluation anchor is labeled as a proxy.
 - Public rendering is an explicit allowlist projection. Holdings and private
@@ -86,14 +92,26 @@ usage metadata.
 
 In `official_free`, Market News is selected only from genuine releases in the
 Federal Reserve press-release, SEC press-release, and BLS latest-numbers feeds.
-The provider parses RSS metadata and links, never article bodies. It uses a
-bounded 14-calendar-day lookback so three distinct releases can be ranked during
-quiet windows; the window is disclosed in the public report and actual dates
-remain visible. The run fails closed rather than create filler when fewer than
-three releases survive validation. Global Macro is a deterministic scenario view
-over a bounded 30-calendar-day window; both past and future date bounds are
-enforced and disclosed. FEDS working papers supply optional Research Discovery;
-Knowledge Refresh is a static educational explainer.
+RSS supplies the discovery link and timestamp. A narrower second hop may fetch
+only allowlisted Federal Reserve, SEC, or BLS HTML, parse a capped agency-specific
+content region in memory, and discard the raw document after the run; original
+page text is not persisted. The provider uses a bounded 14-calendar-day lookback
+so three distinct releases can be ranked during quiet windows; the window is
+disclosed in the public report and actual dates remain visible. The run fails
+closed rather than create filler when fewer than three releases survive
+validation. Global Macro is a deterministic scenario view over a bounded
+30-calendar-day window; both past and future date bounds are enforced and
+disclosed. FEDS working papers supply optional Research Discovery; Knowledge
+Refresh is a static educational explainer.
+
+Earnings Watch is a separate bounded research path. It submits a fixed small set
+of date-specific queries to SEC full-text search, restricts results to 8-K/6-K
+filings submitted during the prior 90 days, and reads at most the configured
+number of allowlisted EDGAR HTML documents in memory. A filing is shown only when
+its own text explicitly ties the target date to a results release, results-related
+board meeting, or earnings call; a call time is never inferred to be the release
+time. Search responses and filing HTML are discarded rather than placed in the
+canonical ledger or public site.
 
 Provider capabilities and lookback windows come from the selected provider
 instance/settings rather than duplicated mode-name conditions. If one market feed
@@ -120,10 +138,13 @@ Earnings selection is computed exactly as:
 + 0.15 × risk/reward asymmetry
 ```
 
-Only a calendar-capable provider may create earnings candidates. Candidates must
-score at least 7.0 and have meaningful attention. A checked universe with no
-qualifying company, a missing authoritative calendar, and a market-closed
-tomorrow are three distinct states.
+Only an evidence-complete calendar provider may create scored earnings candidates.
+Candidates must score at least 7.0 and have meaningful attention. The default SEC
+filing scan creates schedule-only confirmed events instead, with no score,
+consensus estimate, market-price input, or direction prediction. A successful
+bounded scan with no explicit confirmation, an unavailable/incomplete SEC search,
+a checked complete universe with no qualifying company, and a market-closed
+tomorrow remain distinct and visibly disclosed states.
 
 ## Storage and retention
 
@@ -150,8 +171,8 @@ the manifest records matching SHA-256 values.
 
 Sanitized records and prediction events are append-only. This preserves what the
 system knew and predicted at publication time so future journaling and backtests
-can be honest. They contain no holdings, accounts, secrets, raw articles, or
-unlicensed vendor datasets.
+can be honest. They contain no holdings, accounts, secrets, fetched source HTML,
+raw articles, or unlicensed vendor datasets.
 
 `usage_events.jsonl` records sanitized usage metadata immediately for every
 received provider response. Published request IDs reconcile those events into
@@ -194,16 +215,20 @@ Pages delivery.
 
 - Configuration failure: stop immediately; fixed safe message.
 - Official feed reads use two bounded attempts with a fixed exponential delay;
-  the optional OpenAI adapter uses bounded exponential retry with jitter.
-- Malformed XML, unsafe links, or insufficient genuine releases fail safely;
-  the system never synthesizes an event.
+  official HTML and SEC research additionally enforce host/path allowlists,
+  request/response caps, MIME checks, and fixed timeouts. The optional OpenAI
+  adapter uses bounded exponential retry with jitter.
+- Malformed XML/JSON/HTML, unsafe links or redirects, and insufficient genuine
+  releases fail safely; the system never synthesizes an event.
 - A single exhausted market feed with sufficient remaining genuine content is a
   visible degraded-coverage result, not silent success and not total failure.
 - Invalid evidence/item: discard the item.
 - Missing required news/macro section: fail closed.
-- Open-day earnings-calendar absence in declared official-free mode: publish a
-  degraded `data_unavailable` panel. Failure of a configured calendar-capable
-  provider still fails closed.
+- A successful open-day SEC scan with no explicit next-day confirmation publishes
+  `no_confirmed_events_in_bounded_scan`, never "no companies report." Confirmed
+  filing events publish as `confirmed_events_available`; missing SEC search or
+  filing material adds a degraded-coverage warning. Failure of a configured
+  authoritative calendar provider still fails closed.
 - Research or Knowledge failure: explicit unavailable panel is permitted.
 - Rendering/private-data/secret scan failure: no commit.
 - Git push failure: no deployment.

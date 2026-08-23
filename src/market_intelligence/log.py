@@ -43,7 +43,11 @@ class Redactor:
     def __init__(self, secrets: Iterable[str] = ()) -> None:
         self._secrets = tuple(
             sorted(
-                {secret for secret in secrets if isinstance(secret, str) and len(secret) >= 4},
+                {
+                    secret
+                    for secret in secrets
+                    if isinstance(secret, str) and len(secret) >= 4
+                },
                 key=len,
                 reverse=True,
             )
@@ -86,7 +90,9 @@ class JsonFormatter(logging.Formatter):
                 payload[name] = self._redactor.value(record.__dict__[name])
         if record.exc_info and record.exc_info[0] is not None:
             payload["error_class"] = record.exc_info[0].__name__
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        return json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
 
 
 def configure_logging(
