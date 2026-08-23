@@ -1,7 +1,8 @@
 """Command-line boundary used by GitHub Actions.
 
-The CLI performs secret and budget preflight before any paid provider request,
-then delegates canonical report generation and transactional publication.
+The CLI defaults to free official public sources. When a reviewed configuration
+explicitly selects OpenAI, it performs secret and budget preflight before any
+paid request. Both modes share canonical validation and transactional publication.
 """
 
 from __future__ import annotations
@@ -37,7 +38,10 @@ from market_intelligence.pipeline import (
     ReportContext,
 )
 from market_intelligence.providers import (
+    OFFICIAL_ALLOWED_DOMAINS,
     DisabledMarketDataProvider,
+    OfficialFeedsResearchProvider,
+    OfficialFeedsResearchSettings,
     OpenAIResearchProvider,
     OpenAIResearchSettings,
     ProviderError,
@@ -198,9 +202,11 @@ def _settings(config: Any) -> OpenAIResearchSettings:
 def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
     started = time.monotonic()
     config = load_config(args.config)
-    api_key = require_openai_api_key(config)
-    # Reconfigure with the exact secret as an additional deterministic redaction value.
-    logger = configure_logging(secrets=(api_key,), log_path=args.log_file)
+    api_key: str | None = None
+    if config.research.provider == "openai":
+        api_key = require_openai_api_key(config)
+        # Reconfigure with the exact secret as a deterministic redaction value.
+        logger = configure_logging(secrets=(api_key,), log_path=args.log_file)
     project_root = _real_directory(args.project_root, label="Project root")
     generated_at = _utc_now()
     report_date = generated_at.astimezone(ZoneInfo(config.report.timezone)).date()
@@ -225,22 +231,6 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
             )
             return 0
 
-    budget = enforce_monthly_usage_budget(
-        config.openai,
-        usage_path=project_root / "records" / "usage.json",
-        report_date=report_date,
-    )
-    for warning_code in budget.warning_codes:
-        logger.warning(
-            "monthly provider usage has crossed the warning threshold",
-            extra={
-                "phase": "cost_preflight",
-                "report_id": report_id,
-                "warning_code": warning_code,
-                "status": "warning",
-            },
-        )
-
     if config.market_data.enabled:
         raise ConfigurationError(
             "Market data is enabled but no reviewed licensed adapter is installed. "
@@ -248,22 +238,75 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
             "with public-display rights."
         )
     market_context = NYSECalendar().market_context(report_date)
-    usage_journal = UsageAttemptJournal(
-        project_root / "records" / "usage_events.jsonl",
-        report_date=report_date,
-    )
-    provider = OpenAIResearchProvider(
-        _settings(config.openai),
-        api_key=api_key,
-        usage_observer=usage_journal.record,
-    )
+
+    blocked_values: tuple[str, ...] = ()
+    if config.research.provider == "official_free":
+        provider = OfficialFeedsResearchProvider(
+            OfficialFeedsResearchSettings(
+                request_timeout_seconds=(
+                    config.research.official.request_timeout_seconds
+                ),
+            )
+        )
+        allowed_domains = OFFICIAL_ALLOWED_DOMAINS
+        max_workers = config.research.official.max_parallel_sections
+    else:
+        openai_config = config.openai
+        if openai_config is None or api_key is None:
+            raise ConfigurationError(
+                "OpenAI research mode is missing its reviewed configuration."
+            )
+        budget = enforce_monthly_usage_budget(
+            openai_config,
+            usage_path=project_root / "records" / "usage.json",
+            report_date=report_date,
+        )
+        for warning_code in budget.warning_codes:
+            logger.warning(
+                "monthly provider usage has crossed the warning threshold",
+                extra={
+                    "phase": "cost_preflight",
+                    "report_id": report_id,
+                    "warning_code": warning_code,
+                    "status": "warning",
+                },
+            )
+        usage_journal = UsageAttemptJournal(
+            project_root / "records" / "usage_events.jsonl",
+            report_date=report_date,
+        )
+        provider = OpenAIResearchProvider(
+            _settings(openai_config),
+            api_key=api_key,
+            usage_observer=usage_journal.record,
+        )
+        allowed_domains = tuple(openai_config.allowed_domains)
+        max_workers = openai_config.max_parallel_sections
+        blocked_values = (api_key,)
+
+    provider_settings = getattr(provider, "settings", None)
     pipeline = DailyReportPipeline(
         provider,
         market_data_provider=DisabledMarketDataProvider(),
         policy=PipelinePolicy(
             top_news_count=config.publication.required_news_items,
             minimum_earnings_score=config.publication.earnings_min_score,
-            max_workers=config.openai.max_parallel_sections,
+            max_workers=max_workers,
+            earnings_calendar_available=getattr(
+                provider,
+                "earnings_calendar_available",
+                True,
+            ),
+            market_news_lookback_days=getattr(
+                provider_settings,
+                "market_news_lookback_days",
+                1,
+            ),
+            global_macro_lookback_days=getattr(
+                provider_settings,
+                "macro_lookback_days",
+                30,
+            ),
         ),
     )
     report = pipeline.generate(
@@ -275,7 +318,7 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
         )
     )
     validate_source_cutoff(report)
-    validate_source_domains(report, allowed_domains=config.openai.allowed_domains)
+    validate_source_domains(report, allowed_domains=allowed_domains)
     for run in report.provider_runs:
         log_method = logger.warning if run.attempts > 1 else logger.info
         log_method(
@@ -299,7 +342,7 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
     built = SiteBuilder(
         project_root,
         retained_reports=config.report.public_history_count,
-        blocked_values=(api_key,),
+        blocked_values=blocked_values,
     ).build(report, force=args.force)
     result = CommandResult(
         changed=built.changed,

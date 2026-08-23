@@ -4,8 +4,10 @@ import json
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import yaml
+
 from market_intelligence import cli
-from market_intelligence.config import load_config
+from market_intelligence.config import OpenAIConfig, ResearchConfig, load_config
 from market_intelligence.domain.models import DailyReport
 from market_intelligence.providers import ResearchSection
 from market_intelligence.publishing import SiteBuilder
@@ -18,7 +20,88 @@ def _sample_report() -> DailyReport:
     return DailyReport.model_validate_json(FIXTURE.read_text(encoding="utf-8"))
 
 
-def test_missing_openai_key_stops_before_publication(
+def _openai_config_file(tmp_path: Path) -> Path:
+    config = load_config(CONFIG).model_copy(
+        update={
+            "research": ResearchConfig(provider="openai"),
+            "openai": OpenAIConfig(allowed_domains=["sec.gov"]),
+        }
+    )
+    path = tmp_path / "openai-config.yaml"
+    path.write_text(
+        yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_official_free_mode_generates_without_openai_key(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        cli,
+        "_utc_now",
+        lambda: datetime(2026, 8, 19, 12, 30, tzinfo=UTC),
+    )
+    constructed: dict[str, object] = {}
+
+    class FakeOfficialProvider:
+        earnings_calendar_available = False
+
+        def __init__(self, settings) -> None:
+            self.settings = settings
+            constructed["settings"] = settings
+
+    class FakePipeline:
+        def __init__(self, provider, *, market_data_provider, policy) -> None:
+            del market_data_provider
+            constructed["provider"] = provider
+            constructed["policy"] = policy
+
+        def generate(self, context):
+            del context
+            return _sample_report()
+
+    monkeypatch.setattr(cli, "OfficialFeedsResearchProvider", FakeOfficialProvider)
+    monkeypatch.setattr(cli, "DailyReportPipeline", FakePipeline)
+    monkeypatch.setattr(cli, "validate_source_cutoff", lambda report: None)
+    monkeypatch.setattr(
+        cli,
+        "validate_source_domains",
+        lambda report, *, allowed_domains: constructed.update(
+            {"allowed_domains": allowed_domains}
+        ),
+    )
+    result = tmp_path / "result.json"
+    log = tmp_path / "run.jsonl"
+
+    exit_code = cli.main(
+        [
+            "generate",
+            "--config",
+            str(CONFIG),
+            "--project-root",
+            str(tmp_path),
+            "--result-file",
+            str(result),
+            "--log-file",
+            str(log),
+        ]
+    )
+
+    assert exit_code == 0
+    assert result.exists()
+    assert not (tmp_path / "records" / "usage_events.jsonl").exists()
+    assert constructed["provider"].__class__ is FakeOfficialProvider
+    policy = constructed["policy"]
+    assert policy.earnings_calendar_available is False
+    assert policy.market_news_lookback_days == 14
+    assert policy.global_macro_lookback_days == 30
+    assert tuple(constructed["allowed_domains"]) == cli.OFFICIAL_ALLOWED_DOMAINS
+
+
+def test_openai_mode_still_requires_key_before_publication(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -29,7 +112,7 @@ def test_missing_openai_key_stops_before_publication(
         [
             "generate",
             "--config",
-            str(CONFIG),
+            str(_openai_config_file(tmp_path)),
             "--project-root",
             str(tmp_path),
             "--result-file",
@@ -53,9 +136,7 @@ def test_existing_valid_date_is_noop_before_provider_call(
 ) -> None:
     report = _sample_report()
     SiteBuilder(tmp_path).build(report)
-    monkeypatch.setenv(
-        "OPENAI_API_KEY", "sk-" + "synthetic-test-only-value-123456789"
-    )
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(
         cli,
         "_utc_now",
@@ -64,9 +145,11 @@ def test_existing_valid_date_is_noop_before_provider_call(
 
     def provider_must_not_be_constructed(*args, **kwargs):
         del args, kwargs
-        raise AssertionError("idempotent report must not call a paid provider")
+        raise AssertionError("idempotent report must not construct a provider")
 
-    monkeypatch.setattr(cli, "OpenAIResearchProvider", provider_must_not_be_constructed)
+    monkeypatch.setattr(
+        cli, "OfficialFeedsResearchProvider", provider_must_not_be_constructed
+    )
     result = tmp_path / "result.json"
     log = tmp_path / "run.jsonl"
     exit_code = cli.main(
@@ -108,9 +191,9 @@ def test_existing_publication_uses_manifest_integrity(tmp_path: Path) -> None:
 
 
 def test_company_ir_domains_are_enabled_only_for_news_and_earnings() -> None:
-    config = load_config(CONFIG)
-    openai = config.openai.model_copy(
-        update={"company_ir_domains": ["investor.acme.example"]}
+    openai = OpenAIConfig(
+        allowed_domains=["sec.gov", "investor.acme.example"],
+        company_ir_domains=["investor.acme.example"],
     )
 
     settings = cli._settings(openai)
@@ -124,10 +207,10 @@ def test_company_ir_domains_are_enabled_only_for_news_and_earnings() -> None:
     assert ResearchSection.GLOBAL_MACRO not in settings.domain_overrides
 
 
-def test_production_config_avoids_bursting_web_search_requests() -> None:
+def test_production_config_uses_bounded_free_official_sources() -> None:
     config = load_config(CONFIG)
 
-    assert config.openai.max_output_tokens_per_section == 8_000
-    assert config.openai.max_parallel_sections == 1
-    assert config.openai.request_timeout_seconds == 120.0
-    assert config.openai.total_deadline_seconds == 300.0
+    assert config.research.provider == "official_free"
+    assert config.research.official.max_parallel_sections == 1
+    assert config.research.official.request_timeout_seconds == 20.0
+    assert config.openai is None

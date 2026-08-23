@@ -3,54 +3,12 @@ report:
   language: zh-TW
   public_history_count: 8
 
-openai:
-  # Secret values never belong in this file. The runtime reads OPENAI_API_KEY.
-  api_key_env: OPENAI_API_KEY
-  model: gpt-5.6-terra
-  reasoning_effort: medium
-  search_context_size: medium
-  max_output_tokens_per_section: 8000
-  max_tool_calls_per_section: 4
-  max_retries: 2
-  request_timeout_seconds: 120.0
-  total_deadline_seconds: 300.0
-  # Sequential sections avoid burst rate limits on newly provisioned projects.
-  max_parallel_sections: 1
-  monthly_input_token_limit: 2000000
-  monthly_output_token_limit: 500000
-  monthly_web_search_call_limit: 500
-  usage_warning_fraction: 0.8
-  store: false
-  allowed_domains:
-    - reuters.com
-    - bloomberg.com
-    - cnbc.com
-    - wsj.com
-    - ft.com
-    - sec.gov
-    - finance.yahoo.com
-    - marketwatch.com
-    - seekingalpha.com
-    - barrons.com
-    - federalreserve.gov
-    - bls.gov
-    - bea.gov
-    - treasury.gov
-    - eia.gov
-    - ecb.europa.eu
-    - imf.org
-    - worldbank.org
-    - opec.org
-    - ssrn.com
-    - nber.org
-    - arxiv.org
-    - nature.com
-    - science.org
-    - mit.edu
-    - stanford.edu
-    - hbr.org
-  # Add reviewed issuer investor-relations hosts here and also to allowed_domains.
-  company_ir_domains: []
+research:
+  # The production default uses only free official public sources and no API key.
+  provider: official_free
+  official:
+    request_timeout_seconds: 20.0
+    max_parallel_sections: 1
 
 market_data:
   # Remains disabled until a provider contract grants public display rights.

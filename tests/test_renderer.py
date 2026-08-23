@@ -7,6 +7,7 @@ import pytest
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_DATA_UNAVAILABLE_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
     DailyReport,
 )
@@ -146,7 +147,137 @@ def test_earnings_states_have_distinct_copy(
             "next_open_session": "2026-08-24" if status == "market_closed" else None,
         }
     )
-
     html = ReportRenderer().render(report)
 
     assert expected in html
+
+
+def test_data_unavailable_earnings_explains_free_calendar_limit() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "data_unavailable",
+            "universe_coverage": "unavailable",
+            "message": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+            "candidates": [],
+            "next_open_session": None,
+        }
+    )
+    report["section_statuses"]["earnings"] = {
+        "status": "degraded",
+        "detail": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    }
+    report["validation_status"] = "degraded"
+
+    projected = project_public_report(report)
+    html = ReportRenderer().render(report)
+
+    assert projected["earnings"]["status"] == "data_unavailable"
+    assert projected["section_statuses"]["earnings"]["status"] == "degraded"
+    assert "Calendar data unavailable / 財報日曆資料不可用" in html
+    assert "does not mean that no companies report" in html
+    assert "No qualifying candidates" not in html
+
+
+def test_data_unavailable_projection_requires_unavailable_coverage() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "data_unavailable",
+            "message": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+            "candidates": [],
+        }
+    )
+
+    with pytest.raises(PublicProjectionError, match="disclose unavailable coverage"):
+        project_public_report(report)
+
+
+def test_data_unavailable_projection_requires_matching_degraded_section() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "data_unavailable",
+            "universe_coverage": "unavailable",
+            "message": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+            "candidates": [],
+        }
+    )
+
+    with pytest.raises(PublicProjectionError, match="degraded section status"):
+        project_public_report(report)
+
+
+def test_data_unavailable_projection_requires_degraded_report_status() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "data_unavailable",
+            "universe_coverage": "unavailable",
+            "message": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+            "candidates": [],
+        }
+    )
+    report["section_statuses"]["earnings"] = {
+        "status": "degraded",
+        "detail": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    }
+
+    with pytest.raises(PublicProjectionError, match="mark the report degraded"):
+        project_public_report(report)
+
+
+def test_market_news_extended_source_window_is_visibly_disclosed() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["section_statuses"]["market_news"]["detail"] = (
+        "This run may use genuine source releases from the prior 14 calendar days "
+        "to fill the Top 3 when fewer same-session items are available; every card "
+        "shows its event date."
+    )
+
+    html = ReportRenderer().render(report)
+
+    assert "Source-window disclosure" in html
+    assert "prior 14 calendar days" in html
+
+
+def test_required_partial_feed_coverage_is_visibly_degraded() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    warning = (
+        "Official source coverage is degraded. This feed was unavailable after "
+        "bounded retries: BLS Latest Numbers."
+    )
+    report["section_statuses"]["market_news"] = {
+        "status": "degraded",
+        "detail": warning,
+    }
+    report["section_statuses"]["global_macro"] = {
+        "status": "degraded",
+        "detail": (
+            "This run considers genuine source releases from the prior 30 calendar "
+            f"days for Global Macro; the selected event date remains visible. {warning}"
+        ),
+    }
+    report["validation_status"] = "degraded"
+
+    projected = project_public_report(report)
+    html = ReportRenderer().render(report)
+
+    assert projected["section_statuses"]["market_news"]["status"] == "degraded"
+    assert projected["section_statuses"]["global_macro"]["status"] == "degraded"
+    assert html.count("Official-feed coverage degraded") == 2
+    assert "BLS Latest Numbers" in html
+    assert "official_feed_unavailable" not in html
+    assert "prior 30 calendar days" in html
+
+
+@pytest.mark.parametrize("section", ["market_news", "global_macro"])
+def test_degraded_required_projection_requires_degraded_report(section: str) -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["section_statuses"][section] = {
+        "status": "degraded",
+        "detail": "Official source coverage is degraded after bounded feed retries.",
+    }
+
+    with pytest.raises(PublicProjectionError, match=f"degraded {section}"):
+        project_public_report(report)

@@ -9,19 +9,19 @@ Decision record: `ADR-001-OPUS-RECONCILIATION.md`
 GitHub Actions — 08:00 America/New_York
         |
         v
-fixed secret/config preflight
+fixed configuration preflight (no secret in default mode)
         |
         v
 NYSE calendar context
         |
         v
-section-scoped OpenAI Responses API research
+official Federal Reserve / SEC / BLS RSS metadata
         |
         v
-strict schemas + source validation + deterministic scoring
+deterministic mapping + strict source/schema validation + scoring
         |
         v
-canonical DailyReport + ex-ante predictions
+canonical DailyReport + explicit availability states
         |
         v
 allowlisted public projection + standalone HTML
@@ -43,7 +43,9 @@ a single daily job does not need.
 
 ## Publication invariants
 
-- `OPENAI_API_KEY` comes only from the process environment.
+- Default `official_free` mode has no API credential or model-API call.
+- The committed workflow does not expose `OPENAI_API_KEY`. The optional OpenAI
+  adapter requires separate reviewed workflow wiring before production use.
 - Missing required configuration exits before provider calls or publication.
 - Required-section failure keeps the previous public report unchanged.
 - Every market-bearing item has all six explicit analytical answers:
@@ -53,18 +55,23 @@ a single daily job does not need.
   4. who loses;
   5. likely professional-investor reaction;
   6. indicators to monitor next.
-- AI-proposed scoring components are bounded, but totals and selection are
-  calculated by code.
-- OpenAI schemas cannot provide numeric quote or consensus fields. Only a
-  separately licensed market-data adapter can populate those values.
+- Official-feed analysis components and totals are calculated by deterministic
+  code. The optional OpenAI adapter may propose bounded components, but code
+  still calculates its totals and selection.
+- Neither RSS metadata nor an AI schema can provide numeric quote or consensus
+  fields. Only a separately licensed market-data adapter can populate them.
 - Source publishers are derived from validated hosts; model text cannot create
   filenames, IDs, paths, or publisher identities.
 - Known source publication times must be at or before the immutable report
   cutoff. News summaries are capped at 100 characters; macro analysis covers
   Stocks, Bonds, USD, and Commodities; research covers four explicit application
   categories and a 90-day recency window.
-- Unknown earnings release times stay unknown. Market-open/close anchors used for
-  later evaluation are separately identified as proxies.
+- The official-free source set has no authoritative upcoming-earnings calendar.
+  An open target session therefore uses `data_unavailable`, coverage
+  `unavailable`, no candidate/prediction, a degraded section status, and a public
+  warning. It is never converted into "no qualifying candidates."
+- In a future calendar-enabled adapter, unknown earnings release times stay
+  unknown and any market-open/close evaluation anchor is labeled as a proxy.
 - Public rendering is an explicit allowlist projection. Holdings and private
   journal data have no route into the public schema.
 - Generated HTML contains no scripts or external assets.
@@ -76,6 +83,24 @@ a single daily job does not need.
 The canonical report is a strict, versioned model containing source evidence,
 timestamps, scores, explicit impact analyses, predictions, warnings, and provider
 usage metadata.
+
+In `official_free`, Market News is selected only from genuine releases in the
+Federal Reserve press-release, SEC press-release, and BLS latest-numbers feeds.
+The provider parses RSS metadata and links, never article bodies. It uses a
+bounded 14-calendar-day lookback so three distinct releases can be ranked during
+quiet windows; the window is disclosed in the public report and actual dates
+remain visible. The run fails closed rather than create filler when fewer than
+three releases survive validation. Global Macro is a deterministic scenario view
+over a bounded 30-calendar-day window; both past and future date bounds are
+enforced and disclosed. FEDS working papers supply optional Research Discovery;
+Knowledge Refresh is a static educational explainer.
+
+Provider capabilities and lookback windows come from the selected provider
+instance/settings rather than duplicated mode-name conditions. If one market feed
+fails after bounded attempts but the remaining feeds still satisfy the content
+contract, safe warning codes map to fixed public feed labels. The required section,
+canonical provider run, and overall report become `degraded`; unknown feed codes
+fail closed.
 
 News attention is the arithmetic mean of:
 
@@ -95,8 +120,10 @@ Earnings selection is computed exactly as:
 + 0.15 × risk/reward asymmetry
 ```
 
-Only candidates scoring at least 7.0 with meaningful attention are included. An
-open day with no qualifying company is distinct from a market-closed tomorrow.
+Only a calendar-capable provider may create earnings candidates. Candidates must
+score at least 7.0 and have meaningful attention. A checked universe with no
+qualifying company, a missing authoritative calendar, and a market-closed
+tomorrow are three distinct states.
 
 ## Storage and retention
 
@@ -139,6 +166,11 @@ The workflow uses GitHub's current IANA-timezone schedule support:
   timezone: "America/New_York"
 ```
 
+This syntax is supported on GitHub.com: GitHub announced IANA timezone support on
+[March 19, 2026](https://github.blog/changelog/2026-03-19-github-actions-late-march-2026-updates/),
+and the linked current GitHub.com workflow-syntax reference documents schedules.
+Older GitHub Enterprise Server documentation may still describe UTC-only cron.
+
 Manual dispatch supports a `force` input. Report date is the idempotency key;
 scheduled reruns for an already valid date are no-ops.
 
@@ -154,10 +186,18 @@ Pages delivery.
 
 ## Failure policy
 
-- Configuration/authentication failure: stop immediately; fixed safe message.
-- Transient provider failure: bounded exponential retry with jitter.
+- Configuration failure: stop immediately; fixed safe message.
+- Official feed reads use two bounded attempts with a fixed exponential delay;
+  the optional OpenAI adapter uses bounded exponential retry with jitter.
+- Malformed XML, unsafe links, or insufficient genuine releases fail safely;
+  the system never synthesizes an event.
+- A single exhausted market feed with sufficient remaining genuine content is a
+  visible degraded-coverage result, not silent success and not total failure.
 - Invalid evidence/item: discard the item.
-- Missing required news/macro/open-day earnings section: fail closed.
+- Missing required news/macro section: fail closed.
+- Open-day earnings-calendar absence in declared official-free mode: publish a
+  degraded `data_unavailable` panel. Failure of a configured calendar-capable
+  provider still fails closed.
 - Research or Knowledge failure: explicit unavailable panel is permitted.
 - Rendering/private-data/secret scan failure: no commit.
 - Git push failure: no deployment.

@@ -34,6 +34,10 @@ NO_QUALIFYING_EARNINGS_MESSAGE = (
     "US market is open tomorrow, but no candidates in the configured bounded "
     "research universe met the selection threshold and market-attention requirement."
 )
+EARNINGS_DATA_UNAVAILABLE_MESSAGE = (
+    "Upcoming earnings calendar data is unavailable because official-free mode has "
+    "no authoritative free calendar source; no candidates or predictions are published."
+)
 UNLICENSED_METRIC_MESSAGE = "Unavailable (no licensed provider configured)"
 
 _BIDI_OR_INVISIBLE = frozenset(
@@ -589,6 +593,7 @@ class EarningsSection(StrictModel):
     target_date: date
     universe_coverage: Literal[
         "not_applicable",
+        "unavailable",
         "bounded_research",
         "authoritative_full_calendar",
     ]
@@ -596,6 +601,7 @@ class EarningsSection(StrictModel):
         "available",
         "market_closed",
         "no_qualifying_candidates",
+        "data_unavailable",
         "unavailable",
     ]
     candidates: Annotated[list[EarningsCandidate], Field(max_length=20)] = Field(
@@ -616,14 +622,22 @@ class EarningsSection(StrictModel):
             if self.next_open_session is not None and self.next_open_session <= self.target_date:
                 raise ValueError("next open session must follow the closed target date")
         elif self.status == "no_qualifying_candidates":
-            if self.universe_coverage == "not_applicable":
-                raise ValueError("open-market earnings requires a coverage classification")
+            if self.universe_coverage not in {
+                "bounded_research",
+                "authoritative_full_calendar",
+            }:
+                raise ValueError(
+                    "no-qualifying earnings requires an observed research universe"
+                )
             if self.candidates:
                 raise ValueError("no-qualifying state cannot contain candidates")
             if self.message != NO_QUALIFYING_EARNINGS_MESSAGE:
                 raise ValueError("no-qualifying state must use its dedicated message")
         elif self.status == "available":
-            if self.universe_coverage == "not_applicable":
+            if self.universe_coverage not in {
+                "bounded_research",
+                "authoritative_full_calendar",
+            }:
                 raise ValueError("available earnings requires a coverage classification")
             if not self.candidates:
                 raise ValueError("available earnings section requires candidates")
@@ -641,6 +655,17 @@ class EarningsSection(StrictModel):
                     ).date()
                     if local_date != self.target_date:
                         raise ValueError("confirmed earnings time must match the target date")
+        elif self.status == "data_unavailable":
+            if self.universe_coverage != "unavailable":
+                raise ValueError(
+                    "data-unavailable earnings coverage must be explicitly unavailable"
+                )
+            if self.candidates:
+                raise ValueError("data-unavailable earnings cannot contain candidates")
+            if self.message != EARNINGS_DATA_UNAVAILABLE_MESSAGE:
+                raise ValueError(
+                    "data-unavailable earnings must use the transparent fixed message"
+                )
         else:
             if self.universe_coverage == "not_applicable":
                 raise ValueError("open-market earnings requires a coverage classification")
@@ -734,6 +759,9 @@ class SectionState(StrictModel):
 class SectionStatuses(StrictModel):
     market_news: SectionState
     global_macro: SectionState
+    earnings: SectionState = Field(
+        default_factory=lambda: SectionState(status="available")
+    )
     research_discovery: SectionState
     knowledge_refresh: SectionState
 
@@ -786,14 +814,17 @@ class ProviderRunMetadata(StrictModel):
     request_ids: Annotated[list[Identifier], Field(max_length=10)] = Field(
         default_factory=list
     )
+    warning_codes: Annotated[list[Identifier], Field(max_length=10)] = Field(
+        default_factory=list
+    )
     input_tokens: Annotated[int, Field(strict=True, ge=0)] | None = None
     output_tokens: Annotated[int, Field(strict=True, ge=0)] | None = None
 
-    @field_validator("request_ids")
+    @field_validator("request_ids", "warning_codes")
     @classmethod
-    def request_ids_are_unique(cls, value: list[str]) -> list[str]:
+    def metadata_identifiers_are_unique(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)):
-            raise ValueError("provider request IDs cannot be duplicated")
+            raise ValueError("provider metadata identifiers cannot be duplicated")
         return value
 
 
@@ -823,6 +854,13 @@ class DailyReport(StrictModel):
     @classmethod
     def report_times_are_utc(cls, value: datetime) -> datetime:
         return _utc(value)
+
+    @field_validator("warnings")
+    @classmethod
+    def report_warnings_are_unique(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("report warnings cannot be duplicated")
+        return value
 
     @model_validator(mode="after")
     def report_is_publishable(self) -> DailyReport:
@@ -858,10 +896,31 @@ class DailyReport(StrictModel):
             for source in sources
         ):
             raise ValueError("evidence cannot be published after the source cutoff")
-        if self.section_statuses.market_news.status != "available":
-            raise ValueError("three evidence-valid market news items are required")
-        if self.section_statuses.global_macro.status != "available":
-            raise ValueError("global macro is a required section")
+        required_states = {
+            "market_news": self.section_statuses.market_news,
+            "global_macro": self.section_statuses.global_macro,
+        }
+        for section, state in required_states.items():
+            if state.status == "unavailable":
+                raise ValueError(f"{section} is a required section")
+            section_runs = [
+                run for run in self.provider_runs if run.section == section
+            ]
+            if state.status == "degraded":
+                if not any(
+                    warning in (state.detail or "") for warning in self.warnings
+                ):
+                    raise ValueError(
+                        f"degraded required section {section} needs a matching warning"
+                    )
+                if not any(run.status == "degraded" for run in section_runs):
+                    raise ValueError(
+                        f"degraded required section {section} needs degraded provider metadata"
+                    )
+            elif any(run.status == "degraded" for run in section_runs):
+                raise ValueError(
+                    f"degraded provider metadata must mark section {section} degraded"
+                )
 
         tomorrow_open = self.market_context.tomorrow_is_session
         if tomorrow_open and self.earnings.status in {"market_closed", "unavailable"}:
@@ -879,15 +938,42 @@ class DailyReport(StrictModel):
             if value is not None and state.status == "unavailable":
                 raise ValueError("unavailable optional section cannot contain content")
 
+        earnings_data_unavailable = self.earnings.status == "data_unavailable"
+        if earnings_data_unavailable:
+            if self.section_statuses.earnings.status != "degraded":
+                raise ValueError(
+                    "data-unavailable earnings must mark its section degraded"
+                )
+            if (
+                self.section_statuses.earnings.detail
+                != EARNINGS_DATA_UNAVAILABLE_MESSAGE
+            ):
+                raise ValueError(
+                    "data-unavailable earnings must expose the transparent detail"
+                )
+        elif self.section_statuses.earnings.status != "available":
+            raise ValueError(
+                "a complete or not-applicable earnings section must be available"
+            )
+        if (
+            earnings_data_unavailable
+            and EARNINGS_DATA_UNAVAILABLE_MESSAGE not in self.warnings
+        ):
+            raise ValueError(
+                "data-unavailable earnings must add the transparent report warning"
+            )
         has_degradation = any(
             state.status != "available"
             for state in (
+                self.section_statuses.market_news,
+                self.section_statuses.global_macro,
+                self.section_statuses.earnings,
                 self.section_statuses.research_discovery,
                 self.section_statuses.knowledge_refresh,
             )
         )
         if has_degradation and self.validation_status != "degraded":
-            raise ValueError("optional section failure must mark the report degraded")
+            raise ValueError("any degraded section must mark the report degraded")
         if has_degradation and not self.warnings:
             raise ValueError("a degraded report must contain a safe warning")
         if not has_degradation and self.validation_status != "valid":

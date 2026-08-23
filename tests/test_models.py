@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, date, datetime
 
 import pytest
@@ -7,6 +8,7 @@ from pydantic import ValidationError
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_DATA_UNAVAILABLE_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
     DailyReport,
     EarningsCandidate,
@@ -312,6 +314,31 @@ def test_earnings_states_are_distinct_and_closed_copy_is_exact() -> None:
         next_open_session=date(2026, 8, 21),
     )
     assert no_candidates.status != closed.status
+    data_unavailable = EarningsSection(
+        target_date=date(2026, 8, 21),
+        universe_coverage="unavailable",
+        status="data_unavailable",
+        message=EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    )
+    assert data_unavailable.candidates == []
+    assert data_unavailable.status not in {
+        closed.status,
+        no_candidates.status,
+    }
+    with pytest.raises(ValidationError, match="explicitly unavailable"):
+        EarningsSection(
+            target_date=date(2026, 8, 21),
+            universe_coverage="bounded_research",
+            status="data_unavailable",
+            message=EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+        )
+    with pytest.raises(ValidationError, match="transparent fixed message"):
+        EarningsSection(
+            target_date=date(2026, 8, 21),
+            universe_coverage="unavailable",
+            status="data_unavailable",
+            message="No companies are reporting tomorrow.",
+        )
     with pytest.raises(ValidationError, match="authoritative"):
         EarningsSection(
             target_date=date(2026, 8, 22),
@@ -407,6 +434,45 @@ def test_daily_report_enforces_required_and_degradable_sections() -> None:
     round_trip = DailyReport.model_validate_json(report.model_dump_json())
     assert round_trip.report_id == report.report_id
     assert round_trip.market_news[0].computed_score == report.market_news[0].computed_score
+    coverage_warning = (
+        "Official source coverage is degraded. This feed was unavailable after "
+        "bounded retries: BLS Latest Numbers."
+    )
+    degraded_payload = report.model_dump(exclude={"computed_score"})
+    degraded_payload["section_statuses"]["market_news"] = {
+        "status": "degraded",
+        "detail": coverage_warning,
+    }
+    degraded_payload["warnings"].append(coverage_warning)
+    degraded_payload["provider_runs"] = [
+        {
+            "provider": "official public sources",
+            "section": "market_news",
+            "status": "degraded",
+            "attempts": 2,
+            "duration_ms": 10,
+            "source_count": 3,
+            "warning_codes": ["official_feed_unavailable_bls_latest"],
+        }
+    ]
+    degraded_required = DailyReport.model_validate(degraded_payload)
+    assert degraded_required.section_statuses.market_news.status == "degraded"
+
+    missing_warning = deepcopy(degraded_payload)
+    missing_warning["warnings"].remove(coverage_warning)
+    with pytest.raises(ValidationError, match="matching warning"):
+        DailyReport.model_validate(missing_warning)
+
+    mismatched_run = deepcopy(degraded_payload)
+    mismatched_run["provider_runs"][0]["status"] = "success"
+    with pytest.raises(ValidationError, match="degraded provider metadata"):
+        DailyReport.model_validate(mismatched_run)
+
+    duplicate_warning = deepcopy(degraded_payload)
+    duplicate_warning["warnings"].append(coverage_warning)
+    with pytest.raises(ValidationError, match="cannot be duplicated"):
+        DailyReport.model_validate(duplicate_warning)
+
     payload = report.model_dump(exclude={"computed_score"})
     payload["section_statuses"]["global_macro"] = {
         "status": "unavailable",

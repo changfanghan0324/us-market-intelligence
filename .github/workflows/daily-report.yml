@@ -75,7 +75,6 @@ jobs:
         id: generate
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CONFIG_PATH: ${{ github.workspace }}/source/config/config.yaml
           PUBLISHED_ROOT: ${{ steps.reports.outputs.published_root }}
           RESULT_FILE: ${{ runner.temp }}/market-intelligence-result.json

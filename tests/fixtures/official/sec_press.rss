@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>SEC press releases</title>
+    <item>
+      <title>SEC Charges Boiler Room Operator in Investment Scam</title>
+      <link>https://www.sec.gov/newsroom/press-releases/2026-77-sec-charges-boiler-room-operator</link>
+      <pubDate>Fri, 21 Aug 2026 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>SEC proposes a new regulation for crypto assets</title>
+      <link>https://www.sec.gov/newsroom/press-releases/2026-76-sec-proposes-new-regulation-crypto-assets</link>
+      <pubDate>Tue, 18 Aug 2026 13:15:48 -0400</pubDate>
+    </item>
+  </channel>
+</rss>

@@ -57,6 +57,23 @@ class ReportConfig(ConfigModel):
     public_history_count: Literal[8] = 8
 
 
+class OfficialResearchConfig(ConfigModel):
+    """Bounded settings for the zero-cost official-public-source provider."""
+
+    request_timeout_seconds: Annotated[
+        float, Field(strict=True, ge=5.0, le=30.0, allow_inf_nan=False)
+    ] = 20.0
+    # Keep automated requests polite and deterministic across public endpoints.
+    max_parallel_sections: Literal[1] = 1
+
+
+class ResearchConfig(ConfigModel):
+    """Select exactly one reviewed research implementation."""
+
+    provider: Literal["official_free", "openai"] = "official_free"
+    official: OfficialResearchConfig = Field(default_factory=OfficialResearchConfig)
+
+
 class OpenAIConfig(ConfigModel):
     api_key_env: Literal["OPENAI_API_KEY"] = "OPENAI_API_KEY"
     model: ConfigName = "gpt-5.6-terra"
@@ -189,7 +206,8 @@ class ScheduleConfig(ConfigModel):
 
 class AppConfig(ConfigModel):
     report: ReportConfig = Field(default_factory=ReportConfig)
-    openai: OpenAIConfig
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
+    openai: OpenAIConfig | None = None
     market_data: MarketDataConfig = Field(default_factory=MarketDataConfig)
     publication: PublicationConfig = Field(default_factory=PublicationConfig)
     pages: PagesConfig = Field(default_factory=PagesConfig)
@@ -199,6 +217,8 @@ class AppConfig(ConfigModel):
     def timezones_agree(self) -> AppConfig:
         if self.report.timezone != self.schedule.timezone:
             raise ValueError("report and schedule timezones must match")
+        if self.research.provider == "openai" and self.openai is None:
+            raise ValueError("openai research mode requires an openai configuration")
         return self
 
 
@@ -240,6 +260,10 @@ def require_openai_api_key(
     """Return the environment-only API key or fail with fixed instructions."""
 
     openai_config = config.openai if isinstance(config, AppConfig) else config
+    if openai_config is None:
+        raise ConfigurationError(
+            "OpenAI research mode is selected but its non-secret configuration is missing."
+        )
     env_name = openai_config.api_key_env
     value = _environment(environ).get(env_name, "")
     plausible = (

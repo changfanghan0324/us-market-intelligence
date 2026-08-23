@@ -47,10 +47,18 @@ class ProviderError(application_errors.MarketIntelligenceError):
         *,
         section: ResearchSection | None = None,
         retry_after_seconds: float | None = None,
+        attempts: int = 0,
     ) -> None:
+        if (
+            isinstance(attempts, bool)
+            or not isinstance(attempts, int)
+            or not 0 <= attempts <= 10
+        ):
+            raise ValueError("provider error attempts must be an integer from 0 to 10")
         super().__init__(message)
         self.section = section
         self.retry_after_seconds = retry_after_seconds
+        self.attempts = attempts
 
 
 class ConfigurationError(ProviderError, application_errors.ConfigurationError):
@@ -101,6 +109,7 @@ class ProviderRunMetadata:
     request_id: str | None
     source_count: int
     request_ids: tuple[str, ...] = ()
+    warning_codes: tuple[str, ...] = ()
     usage: ProviderUsage = field(default_factory=ProviderUsage)
 
 
