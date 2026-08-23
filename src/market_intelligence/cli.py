@@ -284,9 +284,7 @@ def _settings(config: Any) -> OpenAIResearchSettings:
     if config.company_ir_domains:
         for section in (ResearchSection.MARKET_NEWS, ResearchSection.EARNINGS):
             domain_overrides[section] = tuple(
-                sorted(
-                    set(DEFAULT_DOMAINS[section]).union(config.company_ir_domains)
-                )
+                sorted(set(DEFAULT_DOMAINS[section]).union(config.company_ir_domains))
             )
     return OpenAIResearchSettings(
         model=config.model,
@@ -493,7 +491,9 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="market-intelligence")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    generate = commands.add_parser("generate", help="Generate and stage one daily report")
+    generate = commands.add_parser(
+        "generate", help="Generate and stage one daily report"
+    )
     generate.add_argument("--config", required=True)
     generate.add_argument("--project-root", required=True)
     generate.add_argument("--result-file", required=True)

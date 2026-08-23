@@ -83,7 +83,9 @@ class PermanentProviderError(ProviderError):
     error_code = "permanent_provider_error"
 
 
-class EvidenceValidationError(ProviderError, application_errors.EvidenceValidationError):
+class EvidenceValidationError(
+    ProviderError, application_errors.EvidenceValidationError
+):
     error_code = "evidence_validation_error"
 
 
@@ -159,7 +161,11 @@ def classify_provider_exception(
             section=section,
         )
 
-    if status in {401, 403} or "authentication" in class_name or "permission" in class_name:
+    if (
+        status in {401, 403}
+        or "authentication" in class_name
+        or "permission" in class_name
+    ):
         return AuthenticationProviderError(
             "OpenAI authentication failed; verify the OPENAI_API_KEY GitHub secret.",
             section=section,
@@ -226,7 +232,8 @@ def _is_exhausted_credit_balance(exc: BaseException) -> bool:
     if isinstance(body, Mapping):
         values.extend((body.get("code"), body.get("type")))
     return any(
-        value in {
+        value
+        in {
             "billing_hard_limit_reached",
             "credit_balance_exhausted",
             "insufficient_quota",

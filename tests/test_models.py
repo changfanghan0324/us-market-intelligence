@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_CONFIRMED_EVENTS_MESSAGE,
     EARNINGS_DATA_UNAVAILABLE_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
     DailyReport,
@@ -30,6 +31,8 @@ from market_intelligence.domain.models import (
     SourcedMetric,
     SourceEvidence,
 )
+from market_intelligence.domain.validation import validate_source_domains
+from market_intelligence.errors import EvidenceValidationError
 
 NOW = datetime(2026, 8, 21, 12, 15, tzinfo=UTC)
 
@@ -106,7 +109,9 @@ def selection(score: float = 7.0) -> EarningsSelectionComponents:
     )
 
 
-def earnings_candidate(*, score: float = 7.0, attention: bool = True) -> EarningsCandidate:
+def earnings_candidate(
+    *, score: float = 7.0, attention: bool = True
+) -> EarningsCandidate:
     source = evidence()
     return EarningsCandidate(
         ticker="EXM",
@@ -433,7 +438,9 @@ def test_daily_report_enforces_required_and_degradable_sections() -> None:
     assert report.validation_status == "degraded"
     round_trip = DailyReport.model_validate_json(report.model_dump_json())
     assert round_trip.report_id == report.report_id
-    assert round_trip.market_news[0].computed_score == report.market_news[0].computed_score
+    assert (
+        round_trip.market_news[0].computed_score == report.market_news[0].computed_score
+    )
     coverage_warning = (
         "Official source coverage is degraded. This feed was unavailable after "
         "bounded retries: BLS Latest Numbers."
@@ -487,6 +494,49 @@ def test_daily_report_enforces_required_and_degradable_sections() -> None:
     )
     with pytest.raises(ValidationError, match="source cutoff"):
         DailyReport.model_validate(payload)
+
+    confirmed_source = evidence("src_confirmed_event").model_dump()
+    confirmed_source["published_at"] = datetime(2026, 8, 20, 12, 1, tzinfo=UTC)
+    confirmed_event = {
+        "event_id": "earnings_event_example",
+        "ticker": "EXM",
+        "company_name": "Example Semiconductor Inc.",
+        "cik": "0000000001",
+        "form": "8-K",
+        "announced_on": date(2026, 8, 20),
+        "target_date": date(2026, 8, 21),
+        "confirmation_basis": "scheduled_results_release",
+        "release_timing": "after_market",
+        "scheduled_release_at": datetime(2026, 8, 21, 20, 5, tzinfo=UTC),
+        "conference_call_at": None,
+        "confirmation_summary": (
+            "The issuer filing confirms a results release after the market close."
+        ),
+        "sources": [confirmed_source],
+    }
+    confirmed_payload = report.model_dump(exclude={"computed_score"})
+    confirmed_payload["earnings"] = {
+        "target_date": date(2026, 8, 21),
+        "universe_coverage": "bounded_research",
+        "status": "confirmed_events_available",
+        "candidates": [],
+        "confirmed_events": [confirmed_event],
+        "message": EARNINGS_CONFIRMED_EVENTS_MESSAGE,
+        "next_open_session": date(2026, 8, 21),
+    }
+    with pytest.raises(ValidationError, match="source cutoff"):
+        DailyReport.model_validate(confirmed_payload)
+
+    confirmed_source["published_at"] = datetime(2026, 8, 20, 11, 59, tzinfo=UTC)
+    confirmed_source["url"] = "https://evil.example/phish"
+    report_with_unapproved_event_source = DailyReport.model_validate(confirmed_payload)
+    with pytest.raises(
+        EvidenceValidationError, match="outside the configured allowlist"
+    ):
+        validate_source_domains(
+            report_with_unapproved_event_source,
+            allowed_domains=("sec.gov", "reuters.com"),
+        )
 
 
 def test_unknown_fields_and_coercion_are_forbidden() -> None:

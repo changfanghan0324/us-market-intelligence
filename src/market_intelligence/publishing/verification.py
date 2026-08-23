@@ -128,7 +128,10 @@ def verify_site_tree(
     if document.get("retention") != {"dated_reports": retained_reports}:
         raise _fail("Pages manifest retention does not match policy")
     raw_reports = document.get("reports")
-    if not isinstance(raw_reports, list) or not 1 <= len(raw_reports) <= retained_reports:
+    if (
+        not isinstance(raw_reports, list)
+        or not 1 <= len(raw_reports) <= retained_reports
+    ):
         raise _fail("Pages manifest report count is outside policy")
 
     entries: list[dict[str, str]] = []

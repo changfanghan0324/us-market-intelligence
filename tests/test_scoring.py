@@ -52,7 +52,10 @@ def test_each_earnings_weight_is_regression_guarded() -> None:
     for field, contribution in expected.items():
         values = {name: 0.0 for name in expected}
         values[field] = 10.0
-        assert earnings_selection_score(EarningsSelectionComponents(**values)) == contribution
+        assert (
+            earnings_selection_score(EarningsSelectionComponents(**values))
+            == contribution
+        )
 
 
 def test_earnings_boundary_requires_score_and_attention() -> None:

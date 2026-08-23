@@ -34,10 +34,13 @@ research:
   provider: official_free
 ```
 
-No OpenAI account, API key, or API credit balance is required. The job reads
-bounded RSS metadata from the Federal Reserve, SEC, and BLS public feeds. Do not
-add tokens, cookies, commercial endpoints, or unofficial mirrors to the free
-provider.
+No OpenAI account, OpenAI SDK, `OPENAI_API_KEY`, or API credit balance is
+required. The production job explicitly verifies that the optional SDK is not
+installed. It uses bounded Federal Reserve, SEC, and BLS RSS discovery, then temporarily reads
+only allowlisted official HTML needed for source-grounded summaries. It also runs
+a bounded SEC filing search for next-session earnings events. All source HTML is
+parsed in memory and discarded; do not add tokens, cookies, commercial endpoints,
+or unofficial mirrors to the free provider.
 
 `OPENAI_API_KEY` in `.env.example` is an optional compatibility seam only. If a
 future operator deliberately selects the separate OpenAI adapter, the key must
@@ -46,6 +49,14 @@ issues, logs, or generated reports. The committed workflow deliberately has no
 OpenAI secret mapping: production enablement requires a separate security/cost
 review, a minimal step-level GitHub Secrets mapping, and renewed tests. Changing
 the provider name alone fails closed and has no effect on `official_free`.
+
+For local development of that separate adapter only, keep its optional dependency
+selected on both installation and execution:
+
+```bash
+uv sync --frozen --extra openai
+uv run --frozen --extra openai market-intelligence --help
+```
 
 ## 3. Enable GitHub Pages
 
@@ -90,8 +101,9 @@ uv run --frozen --extra dev pytest
 
 The offline test suite uses synthetic fixtures and makes no network call. A live
 `official_free` generation needs outbound HTTPS access to the configured official
-feeds but no secret. Production dependencies are installed from the hash-locked
-`uv.lock` file.
+feeds, allowlisted agency pages, SEC full-text search, and allowlisted EDGAR
+filings, but no secret. Production dependencies are installed from the
+hash-locked `uv.lock` file.
 
 ## Optional licensed market data
 
@@ -102,8 +114,12 @@ public-display/redistribution rights is deliberately enabled. See
 
 ## Free-mode limitations
 
-The free source set has no authoritative upcoming-earnings calendar. On an open
-target session the Earnings panel is intentionally `data_unavailable`; it does
-not claim that no companies report. Market News may use genuine releases from a
-visibly disclosed 14-day window. If fewer than three distinct releases survive
-validation, publication stops and the previous `latest.html` remains available.
+The free source set has no authoritative complete upcoming-earnings calendar. On
+an open target session, the Earnings panel scans at most the prior 90 days of SEC
+8-K and 6-K filings and lists only issuer documents that explicitly confirm the
+target date. The result is bounded coverage: no match does not mean no company
+reports, and the panel provides no consensus estimates, market prices, scored
+candidates, or price-direction predictions. Market News may use genuine releases
+from a visibly disclosed 14-day window. If fewer than three distinct releases
+survive validation, publication stops and the previous `latest.html` remains
+available.

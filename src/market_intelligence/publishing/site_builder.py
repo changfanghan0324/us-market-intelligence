@@ -73,7 +73,9 @@ def _field(obj: Any, name: str, default: Any = None) -> Any:
     return getattr(obj, name, default)
 
 
-def _safe_nonnegative_int(value: Any, field: str, *, optional: bool = False) -> int | None:
+def _safe_nonnegative_int(
+    value: Any, field: str, *, optional: bool = False
+) -> int | None:
     if value is None and optional:
         return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -220,7 +222,9 @@ def _verify_existing_records(
                 "canonical and public latest report dates do not match"
             )
     except (OSError, PublicArtifactSafetyError) as exc:
-        raise PublicationError("existing records failed integrity verification") from exc
+        raise PublicationError(
+            "existing records failed integrity verification"
+        ) from exc
 
 
 def _tree_digest(root: Path) -> str | None:
@@ -247,7 +251,10 @@ def _tree_digest(root: Path) -> str | None:
 def _base_record_filename(report_date: str) -> str:
     candidate = f"daily_market_report_{report_date}.json"
     match = _BASE_RECORD_RE.fullmatch(candidate)
-    if match is None or date.fromisoformat(match.group("date")).isoformat() != report_date:
+    if (
+        match is None
+        or date.fromisoformat(match.group("date")).isoformat() != report_date
+    ):
         raise PublicationError("unsafe canonical record date")
     return candidate
 
@@ -324,17 +331,24 @@ def _load_previous_manifest(site_dir: Path) -> dict[str, dict[str, str]]:
             raise PublicationError("existing manifest contains an invalid report ID")
         generated_at = raw.get("generated_at")
         if not isinstance(generated_at, str):
-            raise PublicationError("existing manifest contains an invalid generated time")
+            raise PublicationError(
+                "existing manifest contains an invalid generated time"
+            )
         try:
             parsed_generated_at = datetime.fromisoformat(generated_at)
         except ValueError as exc:
             raise PublicationError(
                 "existing manifest contains an invalid generated time"
             ) from exc
-        if parsed_generated_at.tzinfo is None or parsed_generated_at.utcoffset() is None:
+        if (
+            parsed_generated_at.tzinfo is None
+            or parsed_generated_at.utcoffset() is None
+        ):
             raise PublicationError("existing manifest generated time lacks a timezone")
         if raw.get("schema_version") != "1.0":
-            raise PublicationError("existing manifest contains an unknown schema version")
+            raise PublicationError(
+                "existing manifest contains an unknown schema version"
+            )
         if report_date in entries:
             raise PublicationError("existing manifest contains a duplicate report date")
         entries[report_date] = {
@@ -354,7 +368,9 @@ def _build_manifest(
     if not reports:
         raise PublicationError("retention removed every public report")
     if reports[0].report_date.isoformat() != public_report["report_date"]:
-        raise PublicationError("the new report date is older than the existing public latest")
+        raise PublicationError(
+            "the new report date is older than the existing public latest"
+        )
 
     entries: list[dict[str, str]] = []
     for managed in reports:
@@ -387,7 +403,9 @@ def _build_manifest(
     dated_digest = entries[0]["sha256"]
     latest_digest = _sha256_bytes(_read_bytes(latest_path))
     if dated_digest != latest_digest:
-        raise PublicationError("latest.html is not an exact copy of the newest dated report")
+        raise PublicationError(
+            "latest.html is not an exact copy of the newest dated report"
+        )
 
     latest = {
         **entries[0],
@@ -423,11 +441,18 @@ def _append_predictions(records_dir: Path, public_report: Mapping[str, Any]) -> 
                 raise PublicationError(
                     f"prediction ledger contains invalid JSON at line {line_number}"
                 ) from exc
-            if not isinstance(entry, dict) or not isinstance(entry.get("prediction_id"), str):
+            if not isinstance(entry, dict) or not isinstance(
+                entry.get("prediction_id"), str
+            ):
                 raise PublicationError("prediction ledger entry is invalid")
             prediction_id = entry["prediction_id"]
-            if prediction_id in existing_by_id and existing_by_id[prediction_id] != entry:
-                raise PublicationError("prediction ledger contains a conflicting duplicate ID")
+            if (
+                prediction_id in existing_by_id
+                and existing_by_id[prediction_id] != entry
+            ):
+                raise PublicationError(
+                    "prediction ledger contains a conflicting duplicate ID"
+                )
             existing_by_id[prediction_id] = entry
 
     new_lines: list[bytes] = []
@@ -442,15 +467,23 @@ def _append_predictions(records_dir: Path, public_report: Mapping[str, Any]) -> 
             "ticker": candidate["ticker"],
             "earnings_at": candidate["earnings_at"],
             "prediction": prediction,
-            "source_evidence_ids": [source["evidence_id"] for source in candidate["sources"]],
+            "source_evidence_ids": [
+                source["evidence_id"] for source in candidate["sources"]
+            ],
         }
         prior = existing_by_id.get(prediction["prediction_id"])
         if prior is not None:
             if prior != entry:
-                raise PublicationError("prediction ID already exists with different content")
+                raise PublicationError(
+                    "prediction ID already exists with different content"
+                )
             continue
         compact = json.dumps(
-            entry, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+            entry,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
         )
         assert_public_text(compact, label="prediction ledger entry")
         new_lines.append((compact + "\n").encode("utf-8"))
@@ -468,12 +501,17 @@ def _usage_entry(report: Any, public_report: Mapping[str, Any]) -> dict[str, Any
         provider = _as_scalar(_field(run, "provider", "")).strip()
         section = _as_scalar(_field(run, "section", "")).strip()
         status_value = _as_scalar(_field(run, "status", "")).strip()
-        if not provider or not section or status_value not in {
-            "success",
-            "degraded",
-            "failed",
-            "skipped",
-        }:
+        if (
+            not provider
+            or not section
+            or status_value
+            not in {
+                "success",
+                "degraded",
+                "failed",
+                "skipped",
+            }
+        ):
             raise PublicationError("provider usage metadata is invalid")
         runs.append(
             {
@@ -532,7 +570,9 @@ def _usage_entry(report: Any, public_report: Mapping[str, Any]) -> dict[str, Any
     }
 
 
-def _update_usage(records_dir: Path, report: Any, public_report: Mapping[str, Any]) -> None:
+def _update_usage(
+    records_dir: Path, report: Any, public_report: Mapping[str, Any]
+) -> None:
     path = records_dir / "usage.json"
     document = _load_json_file(path, default={"schema_version": "1.0", "reports": []})
     if (
@@ -573,7 +613,9 @@ def _update_usage(records_dir: Path, report: Any, public_report: Mapping[str, An
         try:
             month = date.fromisoformat(item["report_date"]).strftime("%Y-%m")
         except ValueError as exc:
-            raise PublicationError("usage ledger contains an invalid report date") from exc
+            raise PublicationError(
+                "usage ledger contains an invalid report date"
+            ) from exc
         aggregate = monthly.setdefault(
             month,
             {
@@ -669,7 +711,9 @@ class SiteBuilder:
         if candidate.is_symlink() or not candidate.is_dir():
             raise ValueError("project root must be an existing real directory")
         if retained_reports != DEFAULT_RETAINED_REPORTS:
-            raise ValueError("the public retention policy is fixed at eight dated reports")
+            raise ValueError(
+                "the public retention policy is fixed at eight dated reports"
+            )
         self.project_root = candidate.resolve()
         self.renderer = renderer or ReportRenderer()
         self.blocked_values = tuple(
@@ -696,7 +740,9 @@ class SiteBuilder:
             public_report = project_public_report(report)
             html = self.renderer.render(report)
         except (PublicArtifactSafetyError, ValueError) as exc:
-            raise PublicationError("report failed the public rendering boundary") from exc
+            raise PublicationError(
+                "report failed the public rendering boundary"
+            ) from exc
 
         report_date_string = str(public_report["report_date"])
         parsed_report_date = date.fromisoformat(report_date_string)
@@ -768,14 +814,20 @@ class SiteBuilder:
                 )
             latest_bytes = _read_bytes(staged_site / "latest.html")
             dated_bytes = _read_bytes(staged_site / "reports" / dated_filename)
-            if latest_bytes != dated_bytes or _sha256_bytes(latest_bytes) != latest_digest:
+            if (
+                latest_bytes != dated_bytes
+                or _sha256_bytes(latest_bytes) != latest_digest
+            ):
                 raise PublicationError("latest report integrity check failed")
             if verified.report_id != public_report["report_id"]:
-                raise PublicationError("verified latest report ID does not match the build")
+                raise PublicationError(
+                    "verified latest report ID does not match the build"
+                )
 
-            changed = (
-                _tree_digest(staged_site) != _tree_digest(self.project_root / "site")
-                or _tree_digest(staged_records) != _tree_digest(self.project_root / "records")
+            changed = _tree_digest(staged_site) != _tree_digest(
+                self.project_root / "site"
+            ) or _tree_digest(staged_records) != _tree_digest(
+                self.project_root / "records"
             )
             final_record_name = staged_record_path.name
             if changed:

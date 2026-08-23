@@ -326,12 +326,7 @@ def test_orphan_current_day_artifact_is_rejected(
 ) -> None:
     SiteBuilder(tmp_path).build(_sample_report())
     if orphan == "dated_report":
-        current = (
-            tmp_path
-            / "site"
-            / "reports"
-            / "daily_market_report_2026-08-20.html"
-        )
+        current = tmp_path / "site" / "reports" / "daily_market_report_2026-08-20.html"
         current.write_text("orphan", encoding="utf-8")
     else:
         current = tmp_path / "records" / "daily_market_report_2026-08-20.json"
@@ -345,12 +340,7 @@ def test_missing_current_day_artifacts_are_not_silently_repaired(
     tmp_path: Path,
 ) -> None:
     SiteBuilder(tmp_path).build(_sample_report())
-    (
-        tmp_path
-        / "site"
-        / "reports"
-        / "daily_market_report_2026-08-19.html"
-    ).unlink()
+    (tmp_path / "site" / "reports" / "daily_market_report_2026-08-19.html").unlink()
     (tmp_path / "records" / "daily_market_report_2026-08-19.json").unlink()
 
     with pytest.raises(ConfigurationError, match="incomplete"):
@@ -365,12 +355,13 @@ def test_company_ir_domains_are_enabled_only_for_news_and_earnings() -> None:
 
     settings = cli._settings(openai)
 
-    assert "investor.acme.example" in settings.domain_overrides[
-        ResearchSection.MARKET_NEWS
-    ]
-    assert "investor.acme.example" in settings.domain_overrides[
-        ResearchSection.EARNINGS
-    ]
+    assert (
+        "investor.acme.example"
+        in settings.domain_overrides[ResearchSection.MARKET_NEWS]
+    )
+    assert (
+        "investor.acme.example" in settings.domain_overrides[ResearchSection.EARNINGS]
+    )
     assert ResearchSection.GLOBAL_MACRO not in settings.domain_overrides
 
 

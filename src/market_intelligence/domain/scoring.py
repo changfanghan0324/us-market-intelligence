@@ -33,7 +33,10 @@ def _decimal(value: float) -> Decimal:
 def news_attention_score(components: object) -> float:
     """Return the arithmetic mean of the five code-owned news components."""
 
-    total = sum((_decimal(getattr(components, name)) for name in NEWS_COMPONENT_FIELDS), Decimal())
+    total = sum(
+        (_decimal(getattr(components, name)) for name in NEWS_COMPONENT_FIELDS),
+        Decimal(),
+    )
     return float(total / Decimal(len(NEWS_COMPONENT_FIELDS)))
 
 
@@ -68,7 +71,11 @@ def select_top_news(items: Iterable[object], *, count: int = 3) -> list[object]:
             deduplicated[key] = item
     ranked = sorted(
         deduplicated.values(),
-        key=lambda item: (-item.computed_score, -item.event_date.toordinal(), item.news_id),
+        key=lambda item: (
+            -item.computed_score,
+            -item.event_date.toordinal(),
+            item.news_id,
+        ),
     )
     if len(ranked) < count:
         raise ReportValidationError(

@@ -1,11 +1,11 @@
 # US Market Intelligence Morning Report
 
 A production-oriented, daily US market briefing pipeline for one professional
-investor. Its default `official_free` mode collects public US-government RSS
-release metadata, applies deterministic analysis rules, validates a typed
-canonical report, renders a standalone mobile HTML dashboard, commits it to
-GitHub, and deploys it through GitHub Pages. It needs no OpenAI API key and
-incurs no model-API charge.
+investor. Its default `official_free` mode uses public US-government RSS for
+discovery, temporarily reads bounded official HTML from allowlisted agency
+hosts, applies deterministic analysis rules, validates a typed canonical report,
+renders a standalone mobile HTML dashboard, commits it to GitHub, and deploys it
+through GitHub Pages. It needs no OpenAI API key and incurs no model-API charge.
 
 The permanent iPhone Shortcut target is `latest.html`. Public Pages retains the
 newest successful report plus seven prior successful dated reports.
@@ -32,7 +32,7 @@ These are validated schema fields, not optional prompt suggestions.
 08:07 America/New_York primary schedule
   + 08:37 and 09:07 safe retry schedules
   → secure configuration preflight
-  → bounded official .gov RSS collection
+  → bounded official .gov RSS discovery + allowlisted HTML reading
   → deterministic ranking and validation
   → standalone HTML + canonical record
   → dedicated reports-branch commit
@@ -45,15 +45,19 @@ the production workflow does not depend on a local computer or iPhone file.
 
 ## Free official-source mode
 
-The production configuration uses only these no-key public feeds:
+The production configuration uses these no-key public sources:
 
 - Federal Reserve press releases;
 - SEC press releases;
 - BLS latest numbers;
-- Federal Reserve FEDS working papers.
+- Federal Reserve FEDS working papers;
+- recent issuer 8-K and 6-K filings discovered through SEC full-text search.
 
-The collector reads RSS metadata and links only. It does not fetch article
-bodies, scrape commercial sites, call an AI model, or download prices and
+RSS remains the news/research discovery boundary. For selected Federal Reserve,
+SEC, and BLS links, the collector temporarily fetches allowlisted official HTML,
+extracts a bounded agency content region in memory, and discards the raw response;
+the original page text is never stored in reports, records, artifacts, or logs.
+It does not scrape commercial sites, call an AI model, or download prices and
 consensus estimates. Actual feed entries always rank ahead; it never invents
 events to fill the layout. A bounded 14-calendar-day window is visibly disclosed
 and a run fails safely if it cannot produce three distinct genuine releases.
@@ -71,12 +75,14 @@ fixed feed labels; it never exposes raw exception text or internal warning codes
 ## Security defaults
 
 - The default mode has no API secret and does not require `OPENAI_API_KEY`.
+- The production environment does not install the optional OpenAI SDK; free mode
+  uses only the core, hash-locked dependencies.
 - The committed workflow does not inject an OpenAI secret. Enabling the optional
   adapter requires a separate reviewed workflow change and GitHub Secret; changing
   the config alone is intentionally insufficient.
 - Network calls, response sizes, concurrency, and deadlines are bounded.
-- Secrets, raw provider payloads, article bodies, holdings, and account data are
-  prohibited from reports and logs.
+- Secrets, raw provider payloads, fetched official HTML, holdings, and account
+  data are prohibited from reports and logs.
 - The public renderer uses an explicit field projection and pre-publication scan.
 - HTML contains embedded CSS, no JavaScript, and no external assets.
 - Generated content is committed to a dedicated `reports` branch with scoped
@@ -89,16 +95,19 @@ Current price, market cap, consensus EPS, and consensus revenue remain visibly
 unavailable unless an operator adds a provider with public display/redistribution
 rights.
 
-News scores and the exact 30/20/20/15/15 earnings score are calculated by code.
-Unknown facts stay unknown; the system does not invent filler to satisfy a layout.
-Unconfirmed earnings times remain labeled as unconfirmed; any backtest evaluation
-window based on a market-open/close proxy is labeled as a proxy.
+News scores are calculated by code. The 30/20/20/15/15 earnings score remains a
+contract for a future evidence-complete adapter; the default filing-only path does
+not manufacture those inputs. Unknown facts stay unknown, and unconfirmed release
+times remain labeled as unconfirmed.
 
-There is no authoritative, no-key upcoming-earnings calendar in the official
-source set. On an open target session the report therefore publishes the explicit
-state `data_unavailable`, with no earnings candidates or predictions, and is
-marked degraded. This never means "no companies report." A complete-universe
-claim requires a reviewed earnings-calendar adapter with suitable rights.
+There is no authoritative, no-key complete upcoming-earnings calendar in the
+official source set. For the next open session, `official_free` instead performs
+a bounded search over the prior 90 days of SEC 8-K and 6-K filings and lists only
+events whose issuer document explicitly confirms the target date. This is not a
+complete market universe: a zero-result scan never means that no company reports.
+The filing-only view provides schedule facts, not consensus estimates, market
+prices, scored candidates, or price-direction predictions. A complete-universe
+claim still requires a reviewed calendar adapter with suitable rights.
 
 ## Quick start
 
@@ -123,7 +132,9 @@ uv run --frozen --extra dev ruff check .
 
 Tests are offline and use synthetic/provider-mocked data. They make no live
 network or OpenAI request. The production workflow pins uv and installs from the
-hash-locked `uv.lock` file.
+hash-locked `uv.lock` file. Local work on the separate OpenAI adapter must keep
+the extra selected on every invocation, for example `uv run --frozen --extra
+openai market-intelligence --help`.
 
 ## Architecture and review trail
 

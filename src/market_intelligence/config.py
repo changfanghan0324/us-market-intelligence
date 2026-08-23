@@ -81,7 +81,9 @@ class OpenAIConfig(ConfigModel):
         "medium"
     )
     search_context_size: Literal["low", "medium", "high"] = "medium"
-    max_output_tokens_per_section: Annotated[int, Field(strict=True, ge=500, le=8_000)] = 5_000
+    max_output_tokens_per_section: Annotated[
+        int, Field(strict=True, ge=500, le=8_000)
+    ] = 5_000
     max_tool_calls_per_section: Annotated[int, Field(strict=True, ge=1, le=8)] = 6
     max_retries: Annotated[int, Field(strict=True, ge=0, le=3)] = 2
     request_timeout_seconds: Annotated[
@@ -158,7 +160,9 @@ class MarketDataConfig(ConfigModel):
             if self.provider.casefold() == "disabled":
                 raise ValueError("enabled market data requires a named provider")
             if self.api_key_env is None:
-                raise ValueError("enabled market data requires an API-key environment name")
+                raise ValueError(
+                    "enabled market data requires an API-key environment name"
+                )
             if not self.public_display_license_confirmed:
                 raise ValueError("public display license must be explicitly confirmed")
         elif (
@@ -166,7 +170,9 @@ class MarketDataConfig(ConfigModel):
             or self.api_key_env is not None
             or self.public_display_license_confirmed
         ):
-            raise ValueError("disabled market data must not claim provider credentials or license")
+            raise ValueError(
+                "disabled market data must not claim provider credentials or license"
+            )
         return self
 
 
@@ -228,14 +234,20 @@ def load_config(path: str | Path) -> AppConfig:
     config_path = Path(path)
     try:
         if config_path.is_symlink() or not config_path.is_file():
-            raise ConfigurationError("Configuration file is missing or is not a regular file.")
+            raise ConfigurationError(
+                "Configuration file is missing or is not a regular file."
+            )
         if config_path.stat().st_size > _MAX_CONFIG_BYTES:
-            raise ConfigurationError("Configuration file exceeds the 128 KiB safety limit.")
+            raise ConfigurationError(
+                "Configuration file exceeds the 128 KiB safety limit."
+            )
         raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except ConfigurationError:
         raise
     except (OSError, UnicodeError, yaml.YAMLError) as error:
-        raise ConfigurationError("Configuration file could not be read safely.") from error
+        raise ConfigurationError(
+            "Configuration file could not be read safely."
+        ) from error
     if not isinstance(raw, dict):
         raise ConfigurationError("Configuration root must be a YAML mapping.")
     try:

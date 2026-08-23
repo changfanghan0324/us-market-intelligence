@@ -38,6 +38,15 @@ EARNINGS_DATA_UNAVAILABLE_MESSAGE = (
     "Upcoming earnings calendar data is unavailable because official-free mode has "
     "no authoritative free calendar source; no candidates or predictions are published."
 )
+EARNINGS_CONFIRMED_EVENTS_MESSAGE = (
+    "Issuer announcements in recent SEC 8-K and 6-K filings confirm one or more "
+    "events for the target date. Coverage is bounded, not a complete market calendar; "
+    "scoring and price-direction predictions are omitted without supporting data."
+)
+NO_CONFIRMED_EARNINGS_EVENTS_MESSAGE = (
+    "The bounded SEC filing scan did not find an issuer-confirmed event for the target "
+    "date. This does not mean that no company reports earnings."
+)
 UNLICENSED_METRIC_MESSAGE = "Unavailable (no licensed provider configured)"
 
 _BIDI_OR_INVISIBLE = frozenset(
@@ -159,13 +168,17 @@ Identifier = Annotated[
 NarrativeText = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=2_500),
+    StringConstraints(
+        strict=True, strip_whitespace=True, min_length=2, max_length=2_500
+    ),
     AfterValidator(_require_narrative_substance),
 ]
 NewsSummary = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=100),
+    StringConstraints(
+        strict=True, strip_whitespace=True, min_length=2, max_length=1_200
+    ),
     AfterValidator(_require_narrative_substance),
 ]
 CompactNarrative = Annotated[
@@ -177,7 +190,9 @@ CompactNarrative = Annotated[
 OptionalNarrative = Annotated[
     str,
     BeforeValidator(sanitize_untrusted_text),
-    StringConstraints(strict=True, strip_whitespace=True, min_length=2, max_length=1_000),
+    StringConstraints(
+        strict=True, strip_whitespace=True, min_length=2, max_length=1_000
+    ),
     AfterValidator(_require_compact_substance),
 ]
 Score = Annotated[float, Field(strict=True, ge=0.0, le=10.0, allow_inf_nan=False)]
@@ -233,11 +248,16 @@ class SourceEvidence(StrictModel):
     published_at: datetime | None = None
     accessed_at: datetime
     evidence_role: Literal["primary", "corroborating", "context"]
-    quoted_fragment: Annotated[
-        str,
-        BeforeValidator(sanitize_untrusted_text),
-        StringConstraints(strict=True, strip_whitespace=True, min_length=1, max_length=160),
-    ] | None = None
+    quoted_fragment: (
+        Annotated[
+            str,
+            BeforeValidator(sanitize_untrusted_text),
+            StringConstraints(
+                strict=True, strip_whitespace=True, min_length=1, max_length=160
+            ),
+        ]
+        | None
+    ) = None
 
     @field_validator("published_at", "accessed_at")
     @classmethod
@@ -267,7 +287,9 @@ class SourceEvidence(StrictModel):
 
     @model_validator(mode="after")
     def publication_order_is_plausible(self) -> SourceEvidence:
-        if self.published_at and self.published_at > self.accessed_at + timedelta(minutes=5):
+        if self.published_at and self.published_at > self.accessed_at + timedelta(
+            minutes=5
+        ):
             raise ValueError("published_at cannot be later than accessed_at")
         return self
 
@@ -308,7 +330,9 @@ class ImpactAnalysis(StrictModel):
 
     @field_validator("beneficiaries", "losers")
     @classmethod
-    def sentinel_cannot_pad_named_actors(cls, value: list[ImpactActor]) -> list[ImpactActor]:
+    def sentinel_cannot_pad_named_actors(
+        cls, value: list[ImpactActor]
+    ) -> list[ImpactActor]:
         sentinel_count = sum(actor.kind == "none_identified" for actor in value)
         if sentinel_count and len(value) != 1:
             raise ValueError("none_identified must be the only actor in its list")
@@ -332,7 +356,9 @@ class ImpactAnalysis(StrictModel):
     @model_validator(mode="after")
     def answers_are_distinct(self) -> ImpactAnalysis:
         if _too_similar(self.what_changed, self.why_it_matters):
-            raise ValueError("what_changed and why_it_matters must be distinct analyses")
+            raise ValueError(
+                "what_changed and why_it_matters must be distinct analyses"
+            )
         if _too_similar(self.why_it_matters, self.professional_investor_reaction):
             raise ValueError(
                 "why_it_matters and professional_investor_reaction must be distinct"
@@ -417,11 +443,15 @@ class SourcedMetric(StrictModel):
     def provenance_matches_value(self) -> SourcedMetric:
         if self.value is None:
             if self.provenance != "unavailable":
-                raise ValueError("a missing numeric value must have unavailable provenance")
+                raise ValueError(
+                    "a missing numeric value must have unavailable provenance"
+                )
             if self.unavailable_reason is None:
                 raise ValueError("an unavailable metric requires a reason")
             if any((self.as_of, self.provider, self.source_evidence_id)):
-                raise ValueError("an unavailable metric cannot claim provider provenance")
+                raise ValueError(
+                    "an unavailable metric cannot claim provider provenance"
+                )
             if self.license_confirmed:
                 raise ValueError("an unavailable metric cannot claim a display license")
             return self
@@ -429,9 +459,17 @@ class SourcedMetric(StrictModel):
         if self.provenance != "licensed_market_data_provider":
             raise ValueError("numeric market data cannot have model provenance")
         if not self.license_confirmed:
-            raise ValueError("numeric market data requires a confirmed public-display license")
-        if self.as_of is None or self.provider is None or self.source_evidence_id is None:
-            raise ValueError("numeric market data requires provider, as_of, and source evidence")
+            raise ValueError(
+                "numeric market data requires a confirmed public-display license"
+            )
+        if (
+            self.as_of is None
+            or self.provider is None
+            or self.source_evidence_id is None
+        ):
+            raise ValueError(
+                "numeric market data requires provider, as_of, and source evidence"
+            )
         if self.unavailable_reason is not None:
             raise ValueError("an available metric cannot include an unavailable reason")
         if _FORBIDDEN_PROVIDER_WORDS.search(self.provider):
@@ -465,9 +503,10 @@ class MarketNewsItem(StrictModel):
     bull_case: NarrativeText
     bear_case: NarrativeText
     attention: NewsAttentionComponents
-    computed_score: Annotated[
-        float, Field(strict=True, ge=0.0, le=10.0, allow_inf_nan=False)
-    ] | None = None
+    computed_score: (
+        Annotated[float, Field(strict=True, ge=0.0, le=10.0, allow_inf_nan=False)]
+        | None
+    ) = None
     impact_analysis: ImpactAnalysis
     sources: Annotated[list[SourceEvidence], Field(min_length=1, max_length=20)]
 
@@ -477,14 +516,18 @@ class MarketNewsItem(StrictModel):
 
         expected = news_attention_score(self.attention)
         if self.computed_score is not None and self.computed_score != expected:
-            raise ValueError("model-provided news total does not match code-computed score")
+            raise ValueError(
+                "model-provided news total does not match code-computed score"
+            )
         object.__setattr__(self, "computed_score", expected)
         return self
 
     @model_validator(mode="after")
     def analysis_is_not_summary_padding(self) -> MarketNewsItem:
         if _too_similar(self.summary, self.impact_analysis.why_it_matters):
-            raise ValueError("summary and why_it_matters must be substantively different")
+            raise ValueError(
+                "summary and why_it_matters must be substantively different"
+            )
         return self
 
 
@@ -524,9 +567,10 @@ class EarningsCandidate(StrictModel):
         default_factory=lambda: SourcedMetric.unavailable("USD")
     )
     selection: EarningsSelectionComponents
-    computed_score: Annotated[
-        float, Field(strict=True, ge=0.0, le=10.0, allow_inf_nan=False)
-    ] | None = None
+    computed_score: (
+        Annotated[float, Field(strict=True, ge=0.0, le=10.0, allow_inf_nan=False)]
+        | None
+    ) = None
     market_attention: bool
     bull_case: NarrativeText
     base_case: NarrativeText
@@ -545,14 +589,18 @@ class EarningsCandidate(StrictModel):
     @model_validator(mode="after")
     def release_time_is_not_invented(self) -> EarningsCandidate:
         if self.release_timing == "time_not_confirmed" and self.earnings_at is not None:
-            raise ValueError("an unconfirmed earnings time cannot claim an exact timestamp")
+            raise ValueError(
+                "an unconfirmed earnings time cannot claim an exact timestamp"
+            )
         expected_basis = (
             "confirmed_release_time"
             if self.earnings_at is not None
             else "market_window_proxy"
         )
         if self.prediction.event_window.anchor_basis != expected_basis:
-            raise ValueError("prediction window basis does not match release-time confidence")
+            raise ValueError(
+                "prediction window basis does not match release-time confidence"
+            )
         return self
 
     @model_validator(mode="after")
@@ -561,7 +609,9 @@ class EarningsCandidate(StrictModel):
 
         expected = earnings_selection_score(self.selection)
         if self.computed_score is not None and self.computed_score != expected:
-            raise ValueError("model-provided earnings total does not match code-computed score")
+            raise ValueError(
+                "model-provided earnings total does not match code-computed score"
+            )
         object.__setattr__(self, "computed_score", expected)
         return self
 
@@ -589,6 +639,67 @@ class EarningsCandidate(StrictModel):
         return self
 
 
+class ConfirmedEarningsEvent(StrictModel):
+    event_id: Identifier = Field(
+        default_factory=lambda: _generated_id("earnings_event")
+    )
+    ticker: Annotated[
+        str,
+        BeforeValidator(sanitize_untrusted_text),
+        StringConstraints(
+            strict=True,
+            strip_whitespace=True,
+            to_upper=True,
+            min_length=1,
+            max_length=10,
+            pattern=r"^[A-Z][A-Z0-9.-]*$",
+        ),
+    ]
+    company_name: ShortText
+    cik: Annotated[
+        str,
+        BeforeValidator(sanitize_untrusted_text),
+        StringConstraints(strict=True, pattern=r"^[0-9]{10}$"),
+    ]
+    form: Literal["8-K", "8-K/A", "6-K", "6-K/A"]
+    announced_on: date
+    target_date: date
+    confirmation_basis: Literal[
+        "scheduled_results_release",
+        "board_meeting_results",
+        "earnings_conference_call",
+    ]
+    release_timing: Literal[
+        "before_market", "during_market", "after_market", "time_not_confirmed"
+    ]
+    scheduled_release_at: datetime | None = None
+    conference_call_at: datetime | None = None
+    confirmation_summary: NarrativeText
+    sources: Annotated[list[SourceEvidence], Field(min_length=1, max_length=8)]
+
+    @field_validator("scheduled_release_at", "conference_call_at")
+    @classmethod
+    def confirmed_times_are_utc(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _utc(value)
+
+    @model_validator(mode="after")
+    def timing_and_dates_are_consistent(self) -> ConfirmedEarningsEvent:
+        if self.announced_on >= self.target_date:
+            raise ValueError("earnings event announcement must precede target date")
+        for value in (self.scheduled_release_at, self.conference_call_at):
+            if (
+                value is not None
+                and value.astimezone(ZoneInfo("America/New_York")).date()
+                != self.target_date
+            ):
+                raise ValueError(
+                    "confirmed earnings time must match the New York target date"
+                )
+        if self.release_timing == "time_not_confirmed" and self.scheduled_release_at:
+            raise ValueError("unconfirmed release timing cannot include a timestamp")
+        return self
+
+
 class EarningsSection(StrictModel):
     target_date: date
     universe_coverage: Literal[
@@ -601,11 +712,16 @@ class EarningsSection(StrictModel):
         "available",
         "market_closed",
         "no_qualifying_candidates",
+        "confirmed_events_available",
+        "no_confirmed_events_in_bounded_scan",
         "data_unavailable",
         "unavailable",
     ]
     candidates: Annotated[list[EarningsCandidate], Field(max_length=20)] = Field(
         default_factory=list
+    )
+    confirmed_events: Annotated[list[ConfirmedEarningsEvent], Field(max_length=24)] = (
+        Field(default_factory=list)
     )
     message: OptionalNarrative | None = None
     next_open_session: date | None = None
@@ -614,12 +730,21 @@ class EarningsSection(StrictModel):
     def state_has_unambiguous_copy_and_data(self) -> EarningsSection:
         if self.status == "market_closed":
             if self.universe_coverage != "not_applicable":
-                raise ValueError("closed-market earnings coverage must be not applicable")
+                raise ValueError(
+                    "closed-market earnings coverage must be not applicable"
+                )
             if self.candidates:
                 raise ValueError("a closed market cannot have an earnings watchlist")
+            if self.confirmed_events:
+                raise ValueError(
+                    "a closed market cannot have confirmed earnings events"
+                )
             if self.message != CLOSED_MARKET_MESSAGE:
                 raise ValueError("closed market must use the authoritative sentence")
-            if self.next_open_session is not None and self.next_open_session <= self.target_date:
+            if (
+                self.next_open_session is not None
+                and self.next_open_session <= self.target_date
+            ):
                 raise ValueError("next open session must follow the closed target date")
         elif self.status == "no_qualifying_candidates":
             if self.universe_coverage not in {
@@ -631,6 +756,8 @@ class EarningsSection(StrictModel):
                 )
             if self.candidates:
                 raise ValueError("no-qualifying state cannot contain candidates")
+            if self.confirmed_events:
+                raise ValueError("no-qualifying state cannot contain confirmed events")
             if self.message != NO_QUALIFYING_EARNINGS_MESSAGE:
                 raise ValueError("no-qualifying state must use its dedicated message")
         elif self.status == "available":
@@ -638,23 +765,69 @@ class EarningsSection(StrictModel):
                 "bounded_research",
                 "authoritative_full_calendar",
             }:
-                raise ValueError("available earnings requires a coverage classification")
+                raise ValueError(
+                    "available earnings requires a coverage classification"
+                )
             if not self.candidates:
                 raise ValueError("available earnings section requires candidates")
             if self.message is not None:
-                raise ValueError("available earnings section cannot carry unavailable copy")
+                raise ValueError(
+                    "available earnings section cannot carry unavailable copy"
+                )
             if any(
                 candidate.computed_score < 7.0 or not candidate.market_attention
                 for candidate in self.candidates
             ):
-                raise ValueError("published earnings candidates must pass score and attention")
+                raise ValueError(
+                    "published earnings candidates must pass score and attention"
+                )
             for candidate in self.candidates:
                 if candidate.earnings_at is not None:
                     local_date = candidate.earnings_at.astimezone(
                         ZoneInfo("America/New_York")
                     ).date()
                     if local_date != self.target_date:
-                        raise ValueError("confirmed earnings time must match the target date")
+                        raise ValueError(
+                            "confirmed earnings time must match the target date"
+                        )
+            if any(
+                event.target_date != self.target_date for event in self.confirmed_events
+            ):
+                raise ValueError(
+                    "confirmed earnings event must match the section target date"
+                )
+        elif self.status == "confirmed_events_available":
+            if self.universe_coverage != "bounded_research":
+                raise ValueError(
+                    "confirmed SEC events require bounded research coverage"
+                )
+            if self.candidates:
+                raise ValueError(
+                    "schedule-only earnings state cannot contain scored candidates"
+                )
+            if not self.confirmed_events:
+                raise ValueError("confirmed-events state requires at least one event")
+            if self.message != EARNINGS_CONFIRMED_EVENTS_MESSAGE:
+                raise ValueError(
+                    "confirmed-events state must use the fixed coverage message"
+                )
+            if any(
+                event.target_date != self.target_date for event in self.confirmed_events
+            ):
+                raise ValueError(
+                    "confirmed earnings event must match the section target date"
+                )
+        elif self.status == "no_confirmed_events_in_bounded_scan":
+            if self.universe_coverage != "bounded_research":
+                raise ValueError(
+                    "an empty bounded scan requires bounded research coverage"
+                )
+            if self.candidates or self.confirmed_events:
+                raise ValueError("empty bounded scan cannot contain earnings items")
+            if self.message != NO_CONFIRMED_EARNINGS_EVENTS_MESSAGE:
+                raise ValueError(
+                    "empty bounded scan must use its fixed coverage message"
+                )
         elif self.status == "data_unavailable":
             if self.universe_coverage != "unavailable":
                 raise ValueError(
@@ -662,15 +835,27 @@ class EarningsSection(StrictModel):
                 )
             if self.candidates:
                 raise ValueError("data-unavailable earnings cannot contain candidates")
+            if self.confirmed_events:
+                raise ValueError(
+                    "data-unavailable earnings cannot contain confirmed events"
+                )
             if self.message != EARNINGS_DATA_UNAVAILABLE_MESSAGE:
                 raise ValueError(
                     "data-unavailable earnings must use the transparent fixed message"
                 )
         else:
             if self.universe_coverage == "not_applicable":
-                raise ValueError("open-market earnings requires a coverage classification")
+                raise ValueError(
+                    "open-market earnings requires a coverage classification"
+                )
             if self.candidates:
-                raise ValueError("unavailable earnings section cannot contain candidates")
+                raise ValueError(
+                    "unavailable earnings section cannot contain candidates"
+                )
+            if self.confirmed_events:
+                raise ValueError(
+                    "unavailable earnings section cannot contain confirmed events"
+                )
             if self.message is None:
                 raise ValueError("unavailable earnings section requires a reason")
         return self
@@ -682,7 +867,9 @@ class GlobalMacroEvent(StrictModel):
     event_date: date
     market_impact: Literal["high", "medium", "low"]
     summary: NarrativeText
-    affected_asset_classes: Annotated[list[ShortText], Field(min_length=1, max_length=12)]
+    affected_asset_classes: Annotated[
+        list[ShortText], Field(min_length=1, max_length=12)
+    ]
     impact_analysis: ImpactAnalysis
     sources: Annotated[list[SourceEvidence], Field(min_length=1, max_length=20)]
 
@@ -700,7 +887,9 @@ class GlobalMacroEvent(StrictModel):
     @model_validator(mode="after")
     def analysis_is_not_summary_padding(self) -> GlobalMacroEvent:
         if _too_similar(self.summary, self.impact_analysis.why_it_matters):
-            raise ValueError("summary and why_it_matters must be substantively different")
+            raise ValueError(
+                "summary and why_it_matters must be substantively different"
+            )
         return self
 
 
@@ -715,7 +904,9 @@ class ResearchDiscovery(StrictModel):
     discovered_on: date
     plain_explanation: NarrativeText
     changed_belief: NarrativeText
-    applications: Annotated[list[ResearchApplication], Field(min_length=4, max_length=4)]
+    applications: Annotated[
+        list[ResearchApplication], Field(min_length=4, max_length=4)
+    ]
     impact_analysis: ImpactAnalysis | None = None
     sources: Annotated[list[SourceEvidence], Field(min_length=1, max_length=20)]
 
@@ -752,7 +943,9 @@ class SectionState(StrictModel):
     @model_validator(mode="after")
     def nonavailable_state_has_detail(self) -> SectionState:
         if self.status != "available" and self.detail is None:
-            raise ValueError("degraded or unavailable section requires a safe explanation")
+            raise ValueError(
+                "degraded or unavailable section requires a safe explanation"
+            )
         return self
 
 
@@ -877,15 +1070,16 @@ class DailyReport(StrictModel):
             raise ValueError("earnings target must be tomorrow's calendar date")
         if self.source_cutoff_at > self.generated_at:
             raise ValueError("source cutoff cannot be later than generation time")
-        sources = [
-            source
-            for item in self.market_news
-            for source in item.sources
-        ]
+        sources = [source for item in self.market_news for source in item.sources]
         sources.extend(
             source
             for candidate in self.earnings.candidates
             for source in candidate.sources
+        )
+        sources.extend(
+            source
+            for event in self.earnings.confirmed_events
+            for source in event.sources
         )
         sources.extend(self.global_macro.sources)
         if self.research_discovery is not None:
@@ -903,9 +1097,7 @@ class DailyReport(StrictModel):
         for section, state in required_states.items():
             if state.status == "unavailable":
                 raise ValueError(f"{section} is a required section")
-            section_runs = [
-                run for run in self.provider_runs if run.section == section
-            ]
+            section_runs = [run for run in self.provider_runs if run.section == section]
             if state.status == "degraded":
                 if not any(
                     warning in (state.detail or "") for warning in self.warnings
@@ -926,7 +1118,9 @@ class DailyReport(StrictModel):
         if tomorrow_open and self.earnings.status in {"market_closed", "unavailable"}:
             raise ValueError("earnings is required when tomorrow is an open session")
         if not tomorrow_open and self.earnings.status != "market_closed":
-            raise ValueError("closed tomorrow requires the closed-market earnings state")
+            raise ValueError(
+                "closed tomorrow requires the closed-market earnings state"
+            )
 
         optional_pairs = (
             (self.research_discovery, self.section_statuses.research_discovery),
@@ -951,10 +1145,31 @@ class DailyReport(StrictModel):
                 raise ValueError(
                     "data-unavailable earnings must expose the transparent detail"
                 )
-        elif self.section_statuses.earnings.status != "available":
-            raise ValueError(
-                "a complete or not-applicable earnings section must be available"
-            )
+        else:
+            earnings_state = self.section_statuses.earnings
+            earnings_runs = [
+                run for run in self.provider_runs if run.section == "earnings"
+            ]
+            if earnings_state.status == "degraded":
+                if not any(
+                    warning in (earnings_state.detail or "")
+                    for warning in self.warnings
+                ):
+                    raise ValueError(
+                        "degraded earnings needs a matching report warning"
+                    )
+                if not any(run.status == "degraded" for run in earnings_runs):
+                    raise ValueError(
+                        "degraded earnings needs degraded provider metadata"
+                    )
+            elif earnings_state.status != "available":
+                raise ValueError(
+                    "a complete or not-applicable earnings section must be available"
+                )
+            elif any(run.status == "degraded" for run in earnings_runs):
+                raise ValueError(
+                    "degraded earnings provider metadata must mark the section degraded"
+                )
         if (
             earnings_data_unavailable
             and EARNINGS_DATA_UNAVAILABLE_MESSAGE not in self.warnings

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -8,6 +9,7 @@ import pytest
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import ValidationError
 
+from market_intelligence.errors import EvidenceValidationError
 from market_intelligence.providers.base import (
     OPENAI_BILLING_CONFIGURATION_MESSAGE,
     OPENAI_KEY_CONFIGURATION_MESSAGE,
@@ -23,6 +25,7 @@ from market_intelligence.providers.market_data import (
 )
 from market_intelligence.providers.openai_research import (
     BANNED_MARKET_DATA_FIELDS,
+    OPENAI_OPTIONAL_DEPENDENCY_MESSAGE,
     AIEvidence,
     EarningsResponse,
     GlobalMacroResponse,
@@ -175,7 +178,9 @@ def test_ai_impact_rejects_generic_actor_names(generic_name: str) -> None:
         )
 
 
-def news_response(*, source: dict[str, Any] | None = None, title_prefix: str = "Event") -> Any:
+def news_response(
+    *, source: dict[str, Any] | None = None, title_prefix: str = "Event"
+) -> Any:
     source = source or evidence()
     candidates = []
     for index in range(3):
@@ -207,6 +212,40 @@ def news_response(*, source: dict[str, Any] | None = None, title_prefix: str = "
             }
         )
     parsed = MarketNewsResponse.model_validate({"candidates": candidates})
+    return fake_sdk_response(parsed)
+
+
+def confirmed_event_response(
+    *, url: str = "https://www.sec.gov/Archives/edgar/data/1/example.htm"
+) -> Any:
+    parsed = EarningsResponse.model_validate(
+        {
+            "candidates": [],
+            "confirmed_events": [
+                {
+                    "ticker": "EXM",
+                    "company_name": "Example Holdings",
+                    "cik": "0000000001",
+                    "form": "8-K",
+                    "filing_date": "2026-08-21",
+                    "target_date": "2026-08-22",
+                    "confirmation_basis": "scheduled_results_release",
+                    "release_timing": "after_market",
+                    "scheduled_release_at": "2026-08-22T20:05:00Z",
+                    "conference_call_at": None,
+                    "confirmation_summary": (
+                        "The issuer filing confirms a results release after the close."
+                    ),
+                    "sources": [
+                        evidence(
+                            publisher="U.S. Securities and Exchange Commission",
+                            url=url,
+                        )
+                    ],
+                }
+            ],
+        }
+    )
     return fake_sdk_response(parsed)
 
 
@@ -259,9 +298,35 @@ def test_missing_key_fails_preflight_with_fixed_instructions() -> None:
     assert client.responses.calls == []
 
 
+def test_missing_optional_openai_sdk_fails_with_install_instructions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_import = builtins.__import__
+
+    def import_without_openai(
+        name: str,
+        globals: dict[str, Any] | None = None,
+        locals: dict[str, Any] | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> Any:
+        if name == "openai":
+            raise ModuleNotFoundError("optional SDK unavailable", name="openai")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_openai)
+
+    with pytest.raises(ConfigurationError) as raised:
+        OpenAIResearchProvider(settings(), api_key=API_KEY)
+
+    assert str(raised.value) == OPENAI_OPTIONAL_DEPENDENCY_MESSAGE
+
+
 def test_responses_call_is_stateless_bounded_and_domain_filtered() -> None:
     client = FakeClient([news_response()])
-    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client, now=lambda: NOW)
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=client, now=lambda: NOW
+    )
 
     result = provider.market_news(request())
 
@@ -298,7 +363,9 @@ def test_knowledge_refresh_has_no_web_tool() -> None:
         }
     )
     client = FakeClient([fake_sdk_response(parsed)])
-    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client, now=lambda: NOW)
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=client, now=lambda: NOW
+    )
 
     provider.knowledge_refresh(request())
 
@@ -438,7 +505,9 @@ def test_exhausted_credit_balance_stops_without_futile_retries() -> None:
 def test_source_host_must_be_allowlisted() -> None:
     client = FakeClient(
         [
-            news_response(source=evidence(url="https://evil.example/markets/fabricated"))
+            news_response(
+                source=evidence(url="https://evil.example/markets/fabricated")
+            )
             for _ in range(3)
         ]
     )
@@ -450,6 +519,150 @@ def test_source_host_must_be_allowlisted() -> None:
     assert len(client.responses.calls) == 3
 
 
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "https://evil.example/phish",
+        "https://www.reuters.com/markets/us/earnings-schedule/",
+    ],
+)
+def test_confirmed_earnings_sources_use_sec_only_host_and_lineage_controls(
+    unsafe_url: str,
+) -> None:
+    parsed = EarningsResponse.model_validate(
+        {
+            "candidates": [],
+            "confirmed_events": [
+                {
+                    "ticker": "EXM",
+                    "company_name": "Example Holdings",
+                    "cik": "0000000001",
+                    "form": "8-K",
+                    "filing_date": "2026-08-21",
+                    "target_date": "2026-08-22",
+                    "confirmation_basis": "earnings_conference_call",
+                    "release_timing": "time_not_confirmed",
+                    "scheduled_release_at": None,
+                    "conference_call_at": None,
+                    "confirmation_summary": (
+                        "The issuer filing confirms a conference call on the target date."
+                    ),
+                    "sources": [evidence(publisher="Unknown", url=unsafe_url)],
+                }
+            ],
+        }
+    )
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=FakeClient([])
+    )
+
+    with pytest.raises(
+        EvidenceValidationError, match="No confirmed earnings event passed"
+    ):
+        provider._validate_sources(
+            parsed,
+            section=ResearchSection.EARNINGS,
+            response_source_urls=frozenset({unsafe_url}),
+        )
+
+    assert [str(item.url) for item in iter_evidence(parsed)] == [unsafe_url]
+
+
+def test_event_only_earnings_response_validates_and_counts_sec_source() -> None:
+    client = FakeClient([confirmed_event_response()])
+    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client)
+
+    result = provider.earnings(request())
+
+    assert result.data.candidates == []
+    assert len(result.data.confirmed_events) == 1
+    assert str(result.data.confirmed_events[0].sources[0].url).startswith(
+        "https://www.sec.gov/Archives/"
+    )
+    assert result.metadata.source_count == 1
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "release_timing"),
+    [
+        ("2026-08-22T07:00:00Z", "before_market"),
+        ("2026-08-22T18:00:00-07:00", "after_market"),
+    ],
+)
+def test_confirmed_event_accepts_any_timezone_on_new_york_target_date(
+    timestamp: str,
+    release_timing: str,
+) -> None:
+    payload = confirmed_event_response().output_parsed.model_dump(mode="json")
+    payload["confirmed_events"][0]["scheduled_release_at"] = timestamp
+    payload["confirmed_events"][0]["release_timing"] = release_timing
+
+    parsed = EarningsResponse.model_validate(payload)
+
+    assert parsed.confirmed_events[0].scheduled_release_at is not None
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "2026-08-22T00:30:00Z",
+        "2026-08-22T23:30:00-07:00",
+    ],
+)
+def test_confirmed_event_rejects_timestamp_outside_new_york_target_date(
+    timestamp: str,
+) -> None:
+    payload = confirmed_event_response().output_parsed.model_dump(mode="json")
+    payload["confirmed_events"][0]["scheduled_release_at"] = timestamp
+
+    with pytest.raises(ValidationError, match="New York target date"):
+        EarningsResponse.model_validate(payload)
+
+
+def test_confirmed_earnings_source_must_appear_in_response_lineage() -> None:
+    sec_url = "https://www.sec.gov/Archives/edgar/data/1/example.htm"
+    parsed = EarningsResponse.model_validate(
+        {
+            "candidates": [],
+            "confirmed_events": [
+                {
+                    "ticker": "EXM",
+                    "company_name": "Example Holdings",
+                    "cik": "0000000001",
+                    "form": "8-K",
+                    "filing_date": "2026-08-21",
+                    "target_date": "2026-08-22",
+                    "confirmation_basis": "scheduled_results_release",
+                    "release_timing": "after_market",
+                    "scheduled_release_at": "2026-08-22T20:05:00Z",
+                    "conference_call_at": None,
+                    "confirmation_summary": (
+                        "The issuer filing confirms a results release after the close."
+                    ),
+                    "sources": [
+                        evidence(
+                            publisher="U.S. Securities and Exchange Commission",
+                            url=sec_url,
+                        )
+                    ],
+                }
+            ],
+        }
+    )
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=FakeClient([])
+    )
+
+    with pytest.raises(
+        EvidenceValidationError, match="No confirmed earnings event passed"
+    ):
+        provider._validate_sources(
+            parsed,
+            section=ResearchSection.EARNINGS,
+            response_source_urls=frozenset(),
+        )
+
+
 def test_invalid_individual_source_is_removed_without_discarding_candidate() -> None:
     original = news_response().output_parsed
     invalid = AIEvidence.model_validate(
@@ -458,7 +671,9 @@ def test_invalid_individual_source_is_removed_without_discarding_candidate() -> 
     first = original.candidates[0].model_copy(
         update={"sources": [*original.candidates[0].sources, invalid]}
     )
-    parsed = original.model_copy(update={"candidates": [first, *original.candidates[1:]]})
+    parsed = original.model_copy(
+        update={"candidates": [first, *original.candidates[1:]]}
+    )
     response = fake_sdk_response(parsed)
     response.output[0].action.sources = [
         source
@@ -528,7 +743,9 @@ def test_cited_url_must_appear_in_web_search_source_lineage() -> None:
     for _ in range(3):
         response = news_response()
         response.output[0].action.sources = [
-            SimpleNamespace(url="https://www.reuters.com/markets/us/a-different-article/")
+            SimpleNamespace(
+                url="https://www.reuters.com/markets/us/a-different-article/"
+            )
         ]
         responses.append(response)
     client = FakeClient(responses)
@@ -597,7 +814,9 @@ def test_source_url_normalization_is_strict_but_tracking_tolerant() -> None:
     )
 
     assert first == second == "https://reuters.com/world/~policy?article=one"
-    assert _normalized_source_url("https://reuters.com/world/~policy?article=two") != first
+    assert (
+        _normalized_source_url("https://reuters.com/world/~policy?article=two") != first
+    )
     assert _normalized_source_url("https://user@reuters.com/world/~policy") == ""
     assert _normalized_source_url("https://reuters.com:444/world/~policy") == ""
     assert _normalized_source_url("http://reuters.com/world/~policy") == ""
@@ -615,7 +834,9 @@ def test_normalized_source_identity_ignores_only_tracking_variants() -> None:
 
 def test_control_and_bidi_characters_are_removed_from_model_text() -> None:
     client = FakeClient([news_response(title_prefix="Safe\u202e\x00Event")])
-    provider = OpenAIResearchProvider(settings(), api_key=API_KEY, client=client, now=lambda: NOW)
+    provider = OpenAIResearchProvider(
+        settings(), api_key=API_KEY, client=client, now=lambda: NOW
+    )
 
     result = provider.market_news(request())
 
@@ -707,9 +928,7 @@ def test_model_facing_evidence_rejects_unsafe_urls(url: str) -> None:
 
 
 def test_model_facing_evidence_canonicalizes_equivalent_urls() -> None:
-    without_slash = AIEvidence.model_validate(
-        evidence(url="https://www.reuters.com")
-    )
+    without_slash = AIEvidence.model_validate(evidence(url="https://www.reuters.com"))
     uppercase_with_default_port = AIEvidence.model_validate(
         evidence(url="HTTPS://WWW.REUTERS.COM:443")
     )
@@ -771,4 +990,6 @@ def test_cost_caps_cannot_be_configured_above_ceiling() -> None:
             max_output_tokens=OpenAIResearchSettings.MAX_OUTPUT_TOKEN_CEILING + 1
         )
     with pytest.raises(ValueError):
-        OpenAIResearchSettings(max_tool_calls=OpenAIResearchSettings.MAX_TOOL_CALL_CEILING + 1)
+        OpenAIResearchSettings(
+            max_tool_calls=OpenAIResearchSettings.MAX_TOOL_CALL_CEILING + 1
+        )

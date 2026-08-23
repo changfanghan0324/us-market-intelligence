@@ -1,4 +1,5 @@
 import re
+import tomllib
 from pathlib import Path
 
 from market_intelligence.config import load_config
@@ -6,6 +7,7 @@ from market_intelligence.config import load_config
 ROOT = Path(__file__).parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "daily-report.yml"
 CONFIG = ROOT / "config" / "config.yaml"
+PYPROJECT = ROOT / "pyproject.toml"
 
 
 def test_scheduled_production_run_uses_free_mode_without_secret_injection() -> None:
@@ -18,9 +20,7 @@ def test_scheduled_production_run_uses_free_mode_without_secret_injection() -> N
     assert "secrets.OPENAI_API_KEY" not in workflow
     assert config.schedule.hour == 8
     assert config.schedule.minute == 7
-    schedule_pairs = re.findall(
-        r'- cron: "([^"]+)"\n\s+timezone: "([^"]+)"', workflow
-    )
+    schedule_pairs = re.findall(r'- cron: "([^"]+)"\n\s+timezone: "([^"]+)"', workflow)
     assert schedule_pairs == [
         ("7 8 * * *", "America/New_York"),
         ("37 8 * * *", "America/New_York"),
@@ -33,6 +33,20 @@ def test_scheduled_production_run_uses_free_mode_without_secret_injection() -> N
     ) in workflow
 
 
+def test_free_production_runtime_does_not_install_openai_sdk() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    project = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
+
+    assert all(
+        not dependency.startswith("openai") for dependency in project["dependencies"]
+    )
+    assert project["optional-dependencies"]["openai"] == ["openai==3.3.1"]
+    assert "openai==3.3.1" in project["optional-dependencies"]["dev"]
+    assert 'find_spec("openai") is None' in workflow
+    assert "uv sync --frozen --no-dev" in workflow
+    assert "--extra openai" not in workflow
+
+
 def test_optional_paid_usage_journal_remains_recoverable_after_failure() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
@@ -42,8 +56,13 @@ def test_optional_paid_usage_journal_remains_recoverable_after_failure() -> None
 
 def test_pages_verification_does_not_pipe_curl_into_an_early_consumer() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    verification = workflow.split("- name: Verify public latest report ID", maxsplit=1)[1]
+    verification = workflow.split("- name: Verify public latest report ID", maxsplit=1)[
+        1
+    ]
 
     assert 'latest_html="$(curl' in verification
     assert '| grep --fixed-strings --quiet "${REPORT_ID}"' not in verification
-    assert 'grep --fixed-strings --quiet "${REPORT_ID}" <<< "${latest_html}"' in verification
+    assert (
+        'grep --fixed-strings --quiet "${REPORT_ID}" <<< "${latest_html}"'
+        in verification
+    )

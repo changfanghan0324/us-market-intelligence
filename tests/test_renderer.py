@@ -7,7 +7,9 @@ import pytest
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_CONFIRMED_EVENTS_MESSAGE,
     EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    NO_CONFIRMED_EARNINGS_EVENTS_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
     DailyReport,
 )
@@ -23,6 +25,37 @@ FIXTURE = Path(__file__).parent / "fixtures" / "sample_report.json"
 
 def sample_report() -> DailyReport:
     return DailyReport.model_validate_json(FIXTURE.read_text(encoding="utf-8"))
+
+
+def mark_sec_earnings_degraded(
+    report: dict[str, object], *, warning: str, warning_code: str
+) -> None:
+    section_statuses = report["section_statuses"]
+    assert isinstance(section_statuses, dict)
+    section_statuses["earnings"] = {"status": "degraded", "detail": warning}
+    report["validation_status"] = "degraded"
+    warnings = report["warnings"]
+    assert isinstance(warnings, list)
+    warnings.append(warning)
+    provider_runs = report["provider_runs"]
+    assert isinstance(provider_runs, list)
+    provider_runs.append(
+        {
+            "provider": "official_public_sources",
+            "section": "earnings",
+            "model": "deterministic-official-v2",
+            "status": "degraded",
+            "attempts": 1,
+            "duration_ms": 100,
+            "source_count": 1,
+            "web_search_calls": 0,
+            "request_id": None,
+            "request_ids": [],
+            "warning_codes": [warning_code],
+            "input_tokens": None,
+            "output_tokens": None,
+        }
+    )
 
 
 def test_renderer_is_standalone_mobile_safe_and_answers_all_six_questions() -> None:
@@ -43,7 +76,7 @@ def test_renderer_is_standalone_mobile_safe_and_answers_all_six_questions() -> N
     assert "not investment advice" in html
     assert "<script" not in html.casefold()
     assert "<link" not in html.casefold()
-    assert "src=\"http" not in html.casefold()
+    assert 'src="http' not in html.casefold()
 
 
 def test_renderer_autoescapes_untrusted_model_text() -> None:
@@ -66,7 +99,7 @@ def test_earnings_renders_required_decision_fields_and_unavailable_metrics() -> 
     assert "Risk level: high" in html
     assert "Expectations are elevated" in html
     assert "Earnings release · Confirmed at 2026-08-20T20:05:00+00:00" in html
-    assert "not an authoritative full earnings calendar" in html
+    assert "not a complete market earnings calendar" in html
     assert "Business Strategy:" in html
     assert html.count("Unavailable (no licensed provider configured)") == 4
 
@@ -84,15 +117,184 @@ def test_unconfirmed_earnings_time_is_not_rendered_as_an_exact_timestamp() -> No
     assert "market-window proxy; exact release time unconfirmed" in html
 
 
+def test_degraded_confirmed_sec_event_projects_and_renders_release_and_call() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    source = deepcopy(report["earnings"]["candidates"][0]["sources"][0])
+    report["earnings"].update(
+        {
+            "status": "confirmed_events_available",
+            "universe_coverage": "bounded_research",
+            "message": EARNINGS_CONFIRMED_EVENTS_MESSAGE,
+            "candidates": [],
+            "confirmed_events": [
+                {
+                    "event_id": "earnings_event_xpev",
+                    "ticker": "XPEV",
+                    "company_name": "XPENG INC.",
+                    "cik": "0001810997",
+                    "form": "6-K",
+                    "announced_on": "2026-08-19",
+                    "target_date": "2026-08-20",
+                    "confirmation_basis": "board_meeting_results",
+                    "release_timing": "time_not_confirmed",
+                    "scheduled_release_at": None,
+                    "conference_call_at": "2026-08-20T12:00:00+00:00",
+                    "confirmation_summary": (
+                        "The SEC filing confirms a board meeting and a separate "
+                        "conference call, but not the results-release time."
+                    ),
+                    "sources": [source],
+                }
+            ],
+        }
+    )
+    warning = (
+        "Bounded SEC earnings coverage is degraded because the following source "
+        "material was unavailable: one or more matching SEC filing documents. "
+        "This is not a complete market calendar."
+    )
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_documents_incomplete",
+    )
+
+    projected = project_public_report(report)
+    html = ReportRenderer().render(report)
+
+    assert projected["section_statuses"]["earnings"] == {
+        "status": "degraded",
+        "detail": warning,
+    }
+    assert "provider_runs" not in projected
+    assert "warnings" not in projected
+    assert "XPEV · XPENG INC." in html
+    assert "Release time</dt><dd>Not confirmed" in html
+    assert "Conference call</dt><dd>2026-08-20T12:00:00+00:00" in html
+    assert "Never inferred from call time" in html
+    assert "What the filing confirms / 申報文件確認內容" in html
+
+
+def test_degraded_unavailable_sec_search_projects_and_renders_honestly() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "no_confirmed_events_in_bounded_scan",
+            "universe_coverage": "bounded_research",
+            "message": NO_CONFIRMED_EARNINGS_EVENTS_MESSAGE,
+            "candidates": [],
+            "confirmed_events": [],
+        }
+    )
+    warning = (
+        "Bounded SEC earnings coverage is degraded because the following source "
+        "material was unavailable: SEC filing search. This is not a complete "
+        "market calendar."
+    )
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_search_unavailable",
+    )
+
+    projected = project_public_report(report)
+    html = ReportRenderer().render(report)
+
+    assert projected["earnings"]["status"] == ("no_confirmed_events_in_bounded_scan")
+    assert projected["section_statuses"]["earnings"]["detail"] == warning
+    assert "No confirmed event found in bounded scan" in html
+    assert "does not mean that no company reports earnings" in html
+
+
+def test_degraded_earnings_projection_requires_matching_report_warning() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    warning = "Bounded SEC earnings coverage is degraded after bounded retries."
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_documents_incomplete",
+    )
+    report["warnings"] = ["A different section produced a separate warning."]
+
+    with pytest.raises(PublicProjectionError, match="match a report warning"):
+        project_public_report(report)
+
+
+def test_degraded_earnings_projection_rejects_warning_substring_match() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    warning = (
+        "Bounded SEC earnings coverage is degraded because the following source "
+        "material was unavailable: one or more matching SEC filing documents. "
+        "This is not a complete market calendar."
+    )
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_documents_incomplete",
+    )
+    report["warnings"] = ["Bounded SEC earnings coverage is degraded"]
+
+    with pytest.raises(PublicProjectionError, match="match a report warning"):
+        project_public_report(report)
+
+
+def test_degraded_earnings_projection_requires_degraded_provider_metadata() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    warning = "Bounded SEC earnings coverage is degraded after bounded retries."
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_documents_incomplete",
+    )
+    report["provider_runs"] = [
+        run for run in report["provider_runs"] if run["section"] != "earnings"
+    ]
+
+    with pytest.raises(PublicProjectionError, match="degraded provider metadata"):
+        project_public_report(report)
+
+
+def test_degraded_earnings_projection_rejects_unknown_provider_warning_code() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    warning = (
+        "Bounded SEC earnings coverage is degraded because the following source "
+        "material was unavailable: one or more matching SEC filing documents. "
+        "This is not a complete market calendar."
+    )
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_unknown_failure",
+    )
+
+    with pytest.raises(PublicProjectionError, match="unrecognized warning code"):
+        project_public_report(report)
+
+
+def test_degraded_earnings_projection_correlates_warning_code_and_detail() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    warning = (
+        "Bounded SEC earnings coverage is degraded because the following source "
+        "material was unavailable: one or more matching SEC filing documents. "
+        "This is not a complete market calendar."
+    )
+    mark_sec_earnings_degraded(
+        report,
+        warning=warning,
+        warning_code="sec_earnings_search_unavailable",
+    )
+
+    with pytest.raises(PublicProjectionError, match="match provider warning codes"):
+        project_public_report(report)
+
+
 def test_public_projection_drops_private_top_level_and_nested_payloads() -> None:
     report = sample_report().model_dump(mode="json")
     report["private_payload"] = {
         "portfolio_holdings": "LEAK_SENTINEL_9281",
         "account_number": "123-PRIVATE",
     }
-    report["earnings"]["candidates"][0]["journal_entries"] = [
-        "LEAK_SENTINEL_9281"
-    ]
+    report["earnings"]["candidates"][0]["journal_entries"] = ["LEAK_SENTINEL_9281"]
 
     projected = project_public_report(report)
     html = ReportRenderer().render(report)
@@ -132,7 +334,11 @@ def test_numeric_market_data_without_licensed_provenance_is_rejected() -> None:
             NO_QUALIFYING_EARNINGS_MESSAGE,
             "No qualifying candidates",
         ),
-        ("unavailable", "Earnings provider failed after bounded retries.", "analysis unavailable"),
+        (
+            "unavailable",
+            "Earnings provider failed after bounded retries.",
+            "analysis unavailable",
+        ),
     ],
 )
 def test_earnings_states_have_distinct_copy(
@@ -168,6 +374,7 @@ def test_data_unavailable_earnings_explains_free_calendar_limit() -> None:
         "detail": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
     }
     report["validation_status"] = "degraded"
+    report["warnings"].append(EARNINGS_DATA_UNAVAILABLE_MESSAGE)
 
     projected = project_public_report(report)
     html = ReportRenderer().render(report)
@@ -177,6 +384,55 @@ def test_data_unavailable_earnings_explains_free_calendar_limit() -> None:
     assert "Calendar data unavailable / 財報日曆資料不可用" in html
     assert "does not mean that no companies report" in html
     assert "No qualifying candidates" not in html
+
+
+def test_data_unavailable_projection_requires_exact_report_warning() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "data_unavailable",
+            "universe_coverage": "unavailable",
+            "message": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+            "candidates": [],
+        }
+    )
+    report["section_statuses"]["earnings"] = {
+        "status": "degraded",
+        "detail": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    }
+    report["validation_status"] = "degraded"
+    report["warnings"] = [f"{EARNINGS_DATA_UNAVAILABLE_MESSAGE} Extra context."]
+
+    with pytest.raises(PublicProjectionError, match="message must match"):
+        project_public_report(report)
+
+
+def test_data_unavailable_projection_rejects_degraded_earnings_run() -> None:
+    report = deepcopy(sample_report().model_dump(mode="json"))
+    report["earnings"].update(
+        {
+            "status": "data_unavailable",
+            "universe_coverage": "unavailable",
+            "message": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+            "candidates": [],
+        }
+    )
+    report["section_statuses"]["earnings"] = {
+        "status": "degraded",
+        "detail": EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    }
+    report["validation_status"] = "degraded"
+    report["warnings"].append(EARNINGS_DATA_UNAVAILABLE_MESSAGE)
+    report["provider_runs"].append(
+        {
+            "section": "earnings",
+            "status": "degraded",
+            "warning_codes": ["sec_earnings_search_unavailable"],
+        }
+    )
+
+    with pytest.raises(PublicProjectionError, match="cannot have degraded provider"):
+        project_public_report(report)
 
 
 def test_data_unavailable_projection_requires_unavailable_coverage() -> None:

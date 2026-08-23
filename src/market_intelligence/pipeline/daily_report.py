@@ -15,8 +15,11 @@ from pydantic import ValidationError
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_CONFIRMED_EVENTS_MESSAGE,
     EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+    NO_CONFIRMED_EARNINGS_EVENTS_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
+    ConfirmedEarningsEvent,
     DailyReport,
     EarningsCandidate,
     EarningsSection,
@@ -63,6 +66,7 @@ from market_intelligence.providers.market_data import (
     MarketMetricStatus,
 )
 from market_intelligence.providers.openai_research import (
+    AIConfirmedEarningsEvent,
     AIEarningsCandidate,
     AIEvidence,
     AIGlobalMacroEvent,
@@ -86,6 +90,11 @@ _OFFICIAL_FEED_WARNING_LABELS = {
     "official_feed_unavailable_bls_latest": "BLS Latest Numbers",
     "official_feed_unavailable_sec_press": "SEC press releases",
     "official_feed_unavailable_fed_research": "Federal Reserve FEDS working papers",
+    "official_document_unavailable": "one or more official release documents",
+}
+_EARNINGS_WARNING_LABELS = {
+    "sec_earnings_search_unavailable": "SEC filing search",
+    "sec_earnings_documents_incomplete": "one or more matching SEC filing documents",
 }
 
 
@@ -123,22 +132,22 @@ class PipelinePolicy:
     def __post_init__(self) -> None:
         if not isinstance(self.earnings_calendar_available, bool):
             raise TypeError("earnings calendar capability must be a boolean")
-        if (
-            isinstance(self.market_news_lookback_days, bool)
-            or not isinstance(self.market_news_lookback_days, int)
+        if isinstance(self.market_news_lookback_days, bool) or not isinstance(
+            self.market_news_lookback_days, int
         ):
             raise TypeError("market news lookback must be an integer")
         if not 1 <= self.market_news_lookback_days <= 30:
             raise ValueError("market news lookback must be from 1 to 30 days")
-        if (
-            isinstance(self.global_macro_lookback_days, bool)
-            or not isinstance(self.global_macro_lookback_days, int)
+        if isinstance(self.global_macro_lookback_days, bool) or not isinstance(
+            self.global_macro_lookback_days, int
         ):
             raise TypeError("global macro lookback must be an integer")
         if not 1 <= self.global_macro_lookback_days <= 90:
             raise ValueError("global macro lookback must be from 1 to 90 days")
         if self.top_news_count != 3:
-            raise ValueError("the publication contract requires exactly three news items")
+            raise ValueError(
+                "the publication contract requires exactly three news items"
+            )
         if not 0 <= self.minimum_earnings_score <= 10:
             raise ValueError("minimum earnings score must be between zero and ten")
         if not 1 <= self.max_workers <= 3:
@@ -179,15 +188,19 @@ class DailyReportPipeline:
         )
 
         required_calls: dict[ResearchSection, Callable[[], ProviderResult[Any]]] = {
-            ResearchSection.MARKET_NEWS: lambda: self.research_provider.market_news(request),
-            ResearchSection.GLOBAL_MACRO: lambda: self.research_provider.global_macro(request),
+            ResearchSection.MARKET_NEWS: lambda: self.research_provider.market_news(
+                request
+            ),
+            ResearchSection.GLOBAL_MACRO: lambda: self.research_provider.global_macro(
+                request
+            ),
         }
         if (
             context.market_context.tomorrow_is_session
             and self.policy.earnings_calendar_available
         ):
-            required_calls[ResearchSection.EARNINGS] = (
-                lambda: self.research_provider.earnings(request)
+            required_calls[ResearchSection.EARNINGS] = lambda: (
+                self.research_provider.earnings(request)
             )
         self._assert_call_cap(len(required_calls) + 2)
         required_results = self._run_phase(required_calls)
@@ -243,6 +256,10 @@ class DailyReportPipeline:
                 required_results[ResearchSection.EARNINGS],
             )
             earnings = self._earnings(earnings_result, context)
+            earnings_coverage_warning = _earnings_coverage_warning(
+                earnings_result.metadata
+            )
+            _append_warning(warnings, earnings_coverage_warning)
             provider_runs.append(
                 _canonical_provider_run(
                     earnings_result.metadata,
@@ -255,6 +272,7 @@ class DailyReportPipeline:
                 universe_coverage="unavailable",
                 status="data_unavailable",
                 candidates=[],
+                confirmed_events=[],
                 message=EARNINGS_DATA_UNAVAILABLE_MESSAGE,
             )
             warnings.append(EARNINGS_DATA_UNAVAILABLE_MESSAGE)
@@ -274,6 +292,7 @@ class DailyReportPipeline:
                 universe_coverage="not_applicable",
                 status="market_closed",
                 candidates=[],
+                confirmed_events=[],
                 message=CLOSED_MARKET_MESSAGE,
                 next_open_session=context.market_context.next_open_session,
             )
@@ -288,10 +307,12 @@ class DailyReportPipeline:
                 )
             )
 
-        research, research_state, research_run, research_warning = self._optional_research(
-            optional_results[ResearchSection.RESEARCH_DISCOVERY],
-            context,
-            fallback_provider=news_result.metadata.provider,
+        research, research_state, research_run, research_warning = (
+            self._optional_research(
+                optional_results[ResearchSection.RESEARCH_DISCOVERY],
+                context,
+                fallback_provider=news_result.metadata.provider,
+            )
         )
         provider_runs.append(research_run)
         if research_warning:
@@ -339,9 +360,18 @@ class DailyReportPipeline:
             earnings=(
                 SectionState(
                     status="degraded",
-                    detail=EARNINGS_DATA_UNAVAILABLE_MESSAGE,
+                    detail=(
+                        EARNINGS_DATA_UNAVAILABLE_MESSAGE
+                        if earnings.status == "data_unavailable"
+                        else earnings_coverage_warning
+                    ),
                 )
                 if earnings.status == "data_unavailable"
+                or (
+                    context.market_context.tomorrow_is_session
+                    and self.policy.earnings_calendar_available
+                    and earnings_coverage_warning is not None
+                )
                 else SectionState(status="available")
             ),
             research_discovery=research_state,
@@ -379,7 +409,9 @@ class DailyReportPipeline:
         calls: Mapping[ResearchSection, Callable[[], ProviderResult[Any]]],
     ) -> dict[ResearchSection, ProviderResult[Any] | Exception]:
         results: dict[ResearchSection, ProviderResult[Any] | Exception] = {}
-        with ThreadPoolExecutor(max_workers=min(self.policy.max_workers, len(calls))) as pool:
+        with ThreadPoolExecutor(
+            max_workers=min(self.policy.max_workers, len(calls))
+        ) as pool:
             futures = {pool.submit(call): section for section, call in calls.items()}
             for future in as_completed(futures):
                 section = futures[future]
@@ -391,7 +423,7 @@ class DailyReportPipeline:
 
     @staticmethod
     def _raise_required_failure(
-        results: Mapping[ResearchSection, ProviderResult[Any] | Exception]
+        results: Mapping[ResearchSection, ProviderResult[Any] | Exception],
     ) -> None:
         for section in (
             ResearchSection.MARKET_NEWS,
@@ -437,11 +469,14 @@ class DailyReportPipeline:
         context: ReportContext,
     ) -> GlobalMacroEvent:
         item = result.data.event
-        minimum_event_date = (
-            context.market_context.report_date
-            - timedelta(days=self.policy.global_macro_lookback_days)
+        minimum_event_date = context.market_context.report_date - timedelta(
+            days=self.policy.global_macro_lookback_days
         )
-        if not minimum_event_date <= item.event_date <= context.market_context.report_date:
+        if (
+            not minimum_event_date
+            <= item.event_date
+            <= context.market_context.report_date
+        ):
             raise ReportValidationError(
                 "global macro event date is outside the configured source window"
             )
@@ -458,29 +493,65 @@ class DailyReportPipeline:
         context: ReportContext,
     ) -> EarningsSection:
         target_date = context.market_context.tomorrow_date
+        if any(
+            event.target_date != target_date for event in result.data.confirmed_events
+        ):
+            raise ReportValidationError(
+                "confirmed earnings research returned the wrong target date"
+            )
+        confirmed_events: list[ConfirmedEarningsEvent] = []
+        for event in result.data.confirmed_events:
+            try:
+                confirmed_events.append(
+                    _confirmed_earnings_event(event, result.accessed_at)
+                )
+            except (ValidationError, ValueError):
+                continue
         correct_date = [
             candidate
             for candidate in result.data.candidates
             if candidate.earnings_date == target_date
         ]
         if result.data.candidates and not correct_date:
-            raise ReportValidationError("earnings research returned the wrong target date")
+            raise ReportValidationError(
+                "earnings research returned the wrong target date"
+            )
 
         qualifying: list[tuple[AIEarningsCandidate, EarningsSelectionComponents]] = []
         for candidate in correct_date:
             selection = _earnings_selection(candidate)
             if (
                 candidate.market_attention
-                and earnings_selection_score(selection) >= self.policy.minimum_earnings_score
+                and earnings_selection_score(selection)
+                >= self.policy.minimum_earnings_score
             ):
                 qualifying.append((candidate, selection))
 
         if not qualifying:
+            if confirmed_events:
+                return EarningsSection(
+                    target_date=target_date,
+                    universe_coverage="bounded_research",
+                    status="confirmed_events_available",
+                    candidates=[],
+                    confirmed_events=confirmed_events,
+                    message=EARNINGS_CONFIRMED_EVENTS_MESSAGE,
+                )
+            if result.metadata.provider == "official_public_sources":
+                return EarningsSection(
+                    target_date=target_date,
+                    universe_coverage="bounded_research",
+                    status="no_confirmed_events_in_bounded_scan",
+                    candidates=[],
+                    confirmed_events=[],
+                    message=NO_CONFIRMED_EARNINGS_EVENTS_MESSAGE,
+                )
             return EarningsSection(
                 target_date=target_date,
                 universe_coverage="bounded_research",
                 status="no_qualifying_candidates",
                 candidates=[],
+                confirmed_events=[],
                 message=NO_QUALIFYING_EARNINGS_MESSAGE,
             )
 
@@ -512,12 +583,15 @@ class DailyReportPipeline:
             raise ReportValidationError(
                 "qualifying earnings candidates did not pass canonical validation"
             )
-        candidates.sort(key=lambda candidate: (-candidate.computed_score, candidate.ticker))
+        candidates.sort(
+            key=lambda candidate: (-candidate.computed_score, candidate.ticker)
+        )
         return EarningsSection(
             target_date=target_date,
             universe_coverage="bounded_research",
             status="available",
             candidates=candidates,
+            confirmed_events=confirmed_events,
         )
 
     def _optional_research(
@@ -538,35 +612,52 @@ class DailyReportPipeline:
         )
         if isinstance(outcome, Exception):
             attempts = outcome.attempts if isinstance(outcome, ProviderError) else 0
-            return None, SectionState(status="unavailable", detail=warning), (
-                _failed_provider_run(
-                    ResearchSection.RESEARCH_DISCOVERY,
-                    provider=fallback_provider,
-                    attempts=attempts,
-                )
-            ), warning
+            return (
+                None,
+                SectionState(status="unavailable", detail=warning),
+                (
+                    _failed_provider_run(
+                        ResearchSection.RESEARCH_DISCOVERY,
+                        provider=fallback_provider,
+                        attempts=attempts,
+                    )
+                ),
+                warning,
+            )
         result = cast(ProviderResult[ResearchDiscoveryResponse], outcome)
         try:
-            value = _research_discovery(result.data.discovery, result.accessed_at, context)
-        except (ValidationError, ValueError):
-            return None, SectionState(status="unavailable", detail=warning), (
-                _failed_provider_run(
-                    ResearchSection.RESEARCH_DISCOVERY,
-                    provider=result.metadata.provider,
-                    attempts=result.metadata.attempts,
-                    duration_ms=result.metadata.duration_ms,
-                )
-            ), warning
-        coverage_warning = _official_feed_coverage_warning(result.metadata)
-        return value, SectionState(
-            status="degraded" if coverage_warning else "available",
-            detail=coverage_warning,
-        ), (
-            _canonical_provider_run(
-                result.metadata,
-                expected_section=ResearchSection.RESEARCH_DISCOVERY,
+            value = _research_discovery(
+                result.data.discovery, result.accessed_at, context
             )
-        ), coverage_warning
+        except (ValidationError, ValueError):
+            return (
+                None,
+                SectionState(status="unavailable", detail=warning),
+                (
+                    _failed_provider_run(
+                        ResearchSection.RESEARCH_DISCOVERY,
+                        provider=result.metadata.provider,
+                        attempts=result.metadata.attempts,
+                        duration_ms=result.metadata.duration_ms,
+                    )
+                ),
+                warning,
+            )
+        coverage_warning = _official_feed_coverage_warning(result.metadata)
+        return (
+            value,
+            SectionState(
+                status="degraded" if coverage_warning else "available",
+                detail=coverage_warning,
+            ),
+            (
+                _canonical_provider_run(
+                    result.metadata,
+                    expected_section=ResearchSection.RESEARCH_DISCOVERY,
+                )
+            ),
+            coverage_warning,
+        )
 
     @staticmethod
     def _optional_knowledge(
@@ -585,35 +676,50 @@ class DailyReportPipeline:
         )
         if isinstance(outcome, Exception):
             attempts = outcome.attempts if isinstance(outcome, ProviderError) else 0
-            return None, SectionState(status="unavailable", detail=warning), (
-                _failed_provider_run(
-                    ResearchSection.KNOWLEDGE_REFRESH,
-                    provider=fallback_provider,
-                    attempts=attempts,
-                )
-            ), warning
+            return (
+                None,
+                SectionState(status="unavailable", detail=warning),
+                (
+                    _failed_provider_run(
+                        ResearchSection.KNOWLEDGE_REFRESH,
+                        provider=fallback_provider,
+                        attempts=attempts,
+                    )
+                ),
+                warning,
+            )
         result = cast(ProviderResult[KnowledgeRefreshResponse], outcome)
         try:
             value = _knowledge_refresh(result.data.knowledge)
         except (ValidationError, ValueError):
-            return None, SectionState(status="unavailable", detail=warning), (
-                _failed_provider_run(
-                    ResearchSection.KNOWLEDGE_REFRESH,
-                    provider=result.metadata.provider,
-                    attempts=result.metadata.attempts,
-                    duration_ms=result.metadata.duration_ms,
-                )
-            ), warning
-        coverage_warning = _official_feed_coverage_warning(result.metadata)
-        return value, SectionState(
-            status="degraded" if coverage_warning else "available",
-            detail=coverage_warning,
-        ), (
-            _canonical_provider_run(
-                result.metadata,
-                expected_section=ResearchSection.KNOWLEDGE_REFRESH,
+            return (
+                None,
+                SectionState(status="unavailable", detail=warning),
+                (
+                    _failed_provider_run(
+                        ResearchSection.KNOWLEDGE_REFRESH,
+                        provider=result.metadata.provider,
+                        attempts=result.metadata.attempts,
+                        duration_ms=result.metadata.duration_ms,
+                    )
+                ),
+                warning,
             )
-        ), coverage_warning
+        coverage_warning = _official_feed_coverage_warning(result.metadata)
+        return (
+            value,
+            SectionState(
+                status="degraded" if coverage_warning else "available",
+                detail=coverage_warning,
+            ),
+            (
+                _canonical_provider_run(
+                    result.metadata,
+                    expected_section=ResearchSection.KNOWLEDGE_REFRESH,
+                )
+            ),
+            coverage_warning,
+        )
 
     def _assert_call_cap(self, call_count: int) -> None:
         if call_count > self.policy.max_section_calls:
@@ -638,6 +744,33 @@ def _market_news_item(item: AIMarketNewsItem, accessed_at: datetime) -> MarketNe
 
 def _earnings_selection(candidate: AIEarningsCandidate) -> EarningsSelectionComponents:
     return EarningsSelectionComponents(**candidate.selection_components.model_dump())
+
+
+def _confirmed_earnings_event(
+    event: AIConfirmedEarningsEvent,
+    accessed_at: datetime,
+) -> ConfirmedEarningsEvent:
+    return ConfirmedEarningsEvent(
+        event_id=_stable_id(
+            "earnings_event",
+            event.ticker,
+            event.target_date.isoformat(),
+            event.confirmation_basis,
+            event.sources[0].url,
+        ),
+        ticker=event.ticker,
+        company_name=event.company_name,
+        cik=event.cik,
+        form=event.form,
+        announced_on=event.filing_date,
+        target_date=event.target_date,
+        confirmation_basis=event.confirmation_basis,
+        release_timing=event.release_timing,
+        scheduled_release_at=event.scheduled_release_at,
+        conference_call_at=event.conference_call_at,
+        confirmation_summary=event.confirmation_summary,
+        sources=[_source_evidence(source, accessed_at) for source in event.sources],
+    )
 
 
 def _earnings_candidate(
@@ -708,7 +841,9 @@ def _earnings_candidate(
     )
 
 
-def _global_macro_event(item: AIGlobalMacroEvent, accessed_at: datetime) -> GlobalMacroEvent:
+def _global_macro_event(
+    item: AIGlobalMacroEvent, accessed_at: datetime
+) -> GlobalMacroEvent:
     return GlobalMacroEvent(
         event_id=_stable_id("macro", item.event_date.isoformat(), item.global_event),
         title=item.global_event,
@@ -779,7 +914,9 @@ def _impact_analysis(item: AIImpactAnalysis) -> ImpactAnalysis:
     losers = []
     for actor in item.losers:
         if actor.kind == "none_identified":
-            losers.append(NoneIdentifiedActor(kind="none_identified", rationale=actor.rationale))
+            losers.append(
+                NoneIdentifiedActor(kind="none_identified", rationale=actor.rationale)
+            )
         else:
             losers.append(
                 NamedMarketActor(
@@ -875,8 +1012,10 @@ def _reaction_window_anchor(
 
 def _unavailable_market_data(ticker: str) -> EarningsMarketData:
     reason = "No licensed market-data value was returned for this company."
+
     def metric() -> MarketMetric:
         return MarketMetric.unavailable(reason)
+
     return EarningsMarketData(
         ticker=ticker,
         current_price=metric(),
@@ -902,6 +1041,10 @@ def _canonical_provider_run(
         raise ReportValidationError(
             "provider metadata section does not match the invoked section"
         )
+    warning_codes = _validated_warning_codes(
+        metadata,
+        expected_section=expected_section,
+    )
     request_ids = [
         normalized
         for value in metadata.request_ids
@@ -911,34 +1054,48 @@ def _canonical_provider_run(
         provider=metadata.provider,
         model=metadata.model,
         section=metadata.section.value,
-        status=(
-            "degraded"
-            if _official_feed_warning_codes(metadata)
-            else "success"
-        ),
+        status=("degraded" if warning_codes else "success"),
         attempts=metadata.attempts,
         duration_ms=metadata.duration_ms,
         source_count=metadata.source_count,
         request_id=_canonical_request_id(metadata.request_id),
         request_ids=list(dict.fromkeys(request_ids)),
-        warning_codes=list(dict.fromkeys(metadata.warning_codes)),
+        warning_codes=list(warning_codes),
         input_tokens=metadata.usage.input_tokens,
         output_tokens=metadata.usage.output_tokens,
         web_search_calls=metadata.usage.web_search_calls,
     )
 
 
+def _validated_warning_codes(
+    metadata: ProviderRunMetadata,
+    *,
+    expected_section: ResearchSection,
+) -> tuple[str, ...]:
+    codes = tuple(dict.fromkeys(metadata.warning_codes))
+    allowed = (
+        _EARNINGS_WARNING_LABELS
+        if expected_section == ResearchSection.EARNINGS
+        else _OFFICIAL_FEED_WARNING_LABELS
+    )
+    if any(code not in allowed for code in codes):
+        raise ReportValidationError(
+            "provider returned an unknown warning code for the invoked section"
+        )
+    return codes
+
+
 def _official_feed_warning_codes(metadata: ProviderRunMetadata) -> tuple[str, ...]:
     codes = tuple(
         dict.fromkeys(
-            code
-            for code in metadata.warning_codes
-            if code.startswith("official_feed_unavailable_")
+            code for code in metadata.warning_codes if code.startswith("official_")
         )
     )
     unknown = [code for code in codes if code not in _OFFICIAL_FEED_WARNING_LABELS]
     if unknown:
-        raise ReportValidationError("provider returned an unknown official feed warning")
+        raise ReportValidationError(
+            "provider returned an unknown official feed warning"
+        )
     return codes
 
 
@@ -953,10 +1110,27 @@ def _official_feed_coverage_warning(
     )
     if not labels:
         return None
-    subject = "This feed was" if len(labels) == 1 else "These feeds were"
     return (
-        "Official source coverage is degraded. "
-        f"{subject} unavailable after bounded retries: {'; '.join(labels)}."
+        "Official source coverage is degraded after bounded retries. "
+        f"Unavailable source material: {'; '.join(labels)}."
+    )
+
+
+def _earnings_coverage_warning(metadata: ProviderRunMetadata) -> str | None:
+    codes = tuple(
+        dict.fromkeys(
+            code for code in metadata.warning_codes if code.startswith("sec_earnings_")
+        )
+    )
+    unknown = [code for code in codes if code not in _EARNINGS_WARNING_LABELS]
+    if unknown:
+        raise ReportValidationError("provider returned an unknown SEC earnings warning")
+    if not codes:
+        return None
+    labels = "; ".join(_EARNINGS_WARNING_LABELS[code] for code in codes)
+    return (
+        "Bounded SEC earnings coverage is degraded because the following source "
+        f"material was unavailable: {labels}. This is not a complete market calendar."
     )
 
 

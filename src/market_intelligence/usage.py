@@ -115,7 +115,9 @@ class UsageAttemptJournal:
             if self.path.is_symlink() or not self.path.is_file():
                 raise ConfigurationError("Usage event journal must be a regular file.")
             if self.path.stat().st_size + len(encoded) > _MAX_USAGE_BYTES:
-                raise ConfigurationError("Usage event journal exceeds its safe size limit.")
+                raise ConfigurationError(
+                    "Usage event journal exceeds its safe size limit."
+                )
         flags = os.O_APPEND | os.O_CREAT | os.O_WRONLY
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
@@ -205,7 +207,9 @@ def _unreconciled_event_usage(
     except ConfigurationError:
         raise
     except (OSError, UnicodeError) as error:
-        raise ConfigurationError("Usage event journal could not be read safely.") from error
+        raise ConfigurationError(
+            "Usage event journal could not be read safely."
+        ) from error
     totals = [0, 0, 0]
     event_ids: set[str] = set()
     expected_fields = {
@@ -224,7 +228,9 @@ def _unreconciled_event_usage(
         try:
             event = json.loads(line)
         except json.JSONDecodeError as error:
-            raise ConfigurationError("Usage event journal contains invalid JSON.") from error
+            raise ConfigurationError(
+                "Usage event journal contains invalid JSON."
+            ) from error
         if (
             not isinstance(event, dict)
             or set(event) != expected_fields
@@ -233,15 +239,21 @@ def _unreconciled_event_usage(
             raise ConfigurationError("Usage event journal contains an invalid event.")
         event_id = event.get("event_id")
         if not isinstance(event_id, str) or event_id in event_ids:
-            raise ConfigurationError("Usage event journal contains an invalid event ID.")
+            raise ConfigurationError(
+                "Usage event journal contains an invalid event ID."
+            )
         event_ids.add(event_id)
         try:
             event_date = date.fromisoformat(event["report_date"])
             occurred_at = datetime.fromisoformat(event["occurred_at"])
         except (TypeError, ValueError) as error:
-            raise ConfigurationError("Usage event journal contains an invalid date.") from error
+            raise ConfigurationError(
+                "Usage event journal contains an invalid date."
+            ) from error
         if occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
-            raise ConfigurationError("Usage event journal timestamp is not timezone-aware.")
+            raise ConfigurationError(
+                "Usage event journal timestamp is not timezone-aware."
+            )
         if event.get("section") not in {section.value for section in ResearchSection}:
             raise ConfigurationError("Usage event journal section is invalid.")
         if not 1 <= _nonnegative_integer(event.get("attempt"), "attempt") <= 10:
@@ -249,7 +261,10 @@ def _unreconciled_event_usage(
         request_id = event.get("request_id")
         if request_id is not None and not isinstance(request_id, str):
             raise ConfigurationError("Usage event journal request ID is invalid.")
-        if event_date.strftime("%Y-%m") != month or request_id in reconciled_request_ids:
+        if (
+            event_date.strftime("%Y-%m") != month
+            or request_id in reconciled_request_ids
+        ):
             continue
         totals[0] += _nonnegative_integer(event.get("input_tokens"), "input-token")
         totals[1] += _nonnegative_integer(event.get("output_tokens"), "output-token")

@@ -138,7 +138,9 @@ def is_eligible_scheduled_slot(
     try:
         zone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError as error:
-        raise ConfigurationError("Configured schedule timezone is unavailable.") from error
+        raise ConfigurationError(
+            "Configured schedule timezone is unavailable."
+        ) from error
     local_slot = scheduled_at.astimezone(zone)
     return (
         local_slot.hour == hour
