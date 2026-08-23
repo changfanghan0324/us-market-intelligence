@@ -16,7 +16,7 @@ import re
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -51,13 +51,14 @@ from market_intelligence.providers.openai_research import DEFAULT_DOMAINS
 from market_intelligence.publishing import (
     PublicationError,
     SiteBuilder,
+    verify_records_tree,
     verify_site_tree,
 )
 from market_intelligence.publishing.safety import (
     PublicArtifactSafetyError,
     assert_safe_tree,
 )
-from market_intelligence.reporting.retention import report_filename
+from market_intelligence.reporting.retention import discover_reports, report_filename
 from market_intelligence.usage import UsageAttemptJournal, enforce_monthly_usage_budget
 
 _MAX_MANIFEST_BYTES = 2 * 1024 * 1024
@@ -104,7 +105,59 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _existing_publication(project_root: Path, report_date: date) -> CommandResult | None:
+def _verify_records_for_site(
+    project_root: Path,
+    *,
+    blocked_values: Iterable[str] = (),
+) -> None:
+    """Verify canonical history against every retained public report date."""
+
+    public_reports = discover_reports(project_root / "site" / "reports")
+    verified = verify_records_tree(
+        project_root / "records",
+        public_report_dates=(managed.report_date for managed in public_reports),
+        blocked_values=blocked_values,
+    )
+    expected_latest = public_reports[0].report_date if public_reports else None
+    if verified.latest_report_date != expected_latest:
+        raise PublicArtifactSafetyError(
+            "Canonical and public latest report dates do not match."
+        )
+
+
+def _verify_unpublished_state(
+    project_root: Path,
+    *,
+    blocked_values: Iterable[str],
+) -> None:
+    """Allow only a fresh tree or an unpublished usage-event journal."""
+
+    site = project_root / "site"
+    if site.exists() or site.is_symlink():
+        if site.is_symlink() or not site.is_dir():
+            raise PublicArtifactSafetyError("Public site root is not a real directory.")
+        if next(site.iterdir(), None) is not None:
+            raise PublicArtifactSafetyError(
+                "Unpublished state contains partial public artifacts."
+            )
+
+    records = project_root / "records"
+    if not records.exists() and not records.is_symlink():
+        return
+    verified = verify_records_tree(records, blocked_values=blocked_values)
+    if verified.base_record_count:
+        raise PublicArtifactSafetyError(
+            "Canonical history exists without a complete public site."
+        )
+
+
+def _existing_publication(
+    project_root: Path,
+    report_date: date,
+    *,
+    allow_noop: bool = True,
+    blocked_values: Iterable[str] = (),
+) -> CommandResult | None:
     """Return a validated date-keyed no-op result before spending provider budget."""
 
     date_string = report_date.isoformat()
@@ -115,6 +168,43 @@ def _existing_publication(project_root: Path, report_date: date) -> CommandResul
     markers = (dated, latest, manifest_path, record)
     present = tuple(path.exists() or path.is_symlink() for path in markers)
     if not any(present):
+        try:
+            _verify_unpublished_state(
+                project_root,
+                blocked_values=blocked_values,
+            )
+        except (OSError, PublicArtifactSafetyError) as error:
+            raise ConfigurationError(
+                "Existing publication state is incomplete. Run the scan command and "
+                "repair the reports branch before generating another report."
+            ) from error
+        return None
+    dated_present, latest_present, manifest_present, record_present = present
+    if not dated_present and not record_present:
+        if latest_present != manifest_present:
+            raise ConfigurationError(
+                "Existing publication state is incomplete. Run the scan command and "
+                "repair the reports branch before generating another report."
+            )
+        if latest_present:
+            try:
+                verified = verify_site_tree(
+                    project_root / "site", blocked_values=blocked_values
+                )
+                _verify_records_for_site(
+                    project_root,
+                    blocked_values=blocked_values,
+                )
+            except (OSError, PublicArtifactSafetyError) as error:
+                raise ConfigurationError(
+                    "Existing publication state is incomplete. Run the scan command "
+                    "and repair the reports branch before generating another report."
+                ) from error
+            if verified.report_date >= report_date:
+                raise ConfigurationError(
+                    "Existing publication state is incomplete. Run the scan command "
+                    "and repair the reports branch before generating another report."
+                )
         return None
     if not all(present):
         raise ConfigurationError(
@@ -146,6 +236,18 @@ def _existing_publication(project_root: Path, report_date: date) -> CommandResul
     latest_sha = _sha256(latest)
     if declared_sha != dated_sha or declared_sha != latest_sha:
         raise ConfigurationError("Existing latest report failed its integrity check.")
+    try:
+        verify_site_tree(project_root / "site", blocked_values=blocked_values)
+        _verify_records_for_site(
+            project_root,
+            blocked_values=blocked_values,
+        )
+    except (OSError, PublicArtifactSafetyError) as error:
+        raise ConfigurationError(
+            "Existing publication state failed its integrity scan."
+        ) from error
+    if not allow_noop:
+        return None
     return CommandResult(
         changed=False,
         publishable=True,
@@ -207,6 +309,7 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
         api_key = require_openai_api_key(config)
         # Reconfigure with the exact secret as a deterministic redaction value.
         logger = configure_logging(secrets=(api_key,), log_path=args.log_file)
+    blocked_values = (api_key,) if api_key is not None else ()
     project_root = _real_directory(args.project_root, label="Project root")
     generated_at = _utc_now()
     report_date = generated_at.astimezone(ZoneInfo(config.report.timezone)).date()
@@ -216,20 +319,24 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
         extra={"phase": "preflight", "report_id": report_id, "status": "started"},
     )
 
-    if not args.force:
-        existing = _existing_publication(project_root, report_date)
-        if existing is not None:
-            _write_result(args.result_file, existing)
-            logger.info(
-                "validated date-keyed report already exists",
-                extra={
-                    "phase": "idempotency",
-                    "report_id": report_id,
-                    "status": "successful_completion",
-                    "duration_ms": int((time.monotonic() - started) * 1_000),
-                },
-            )
-            return 0
+    existing = _existing_publication(
+        project_root,
+        report_date,
+        allow_noop=not args.force,
+        blocked_values=blocked_values,
+    )
+    if existing is not None:
+        _write_result(args.result_file, existing)
+        logger.info(
+            "validated date-keyed report already exists",
+            extra={
+                "phase": "idempotency",
+                "report_id": report_id,
+                "status": "successful_completion",
+                "duration_ms": int((time.monotonic() - started) * 1_000),
+            },
+        )
+        return 0
 
     if config.market_data.enabled:
         raise ConfigurationError(
@@ -239,7 +346,6 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
         )
     market_context = NYSECalendar().market_context(report_date)
 
-    blocked_values: tuple[str, ...] = ()
     if config.research.provider == "official_free":
         provider = OfficialFeedsResearchProvider(
             OfficialFeedsResearchSettings(
@@ -282,7 +388,6 @@ def _generate(args: argparse.Namespace, logger: logging.Logger) -> int:
         )
         allowed_domains = tuple(openai_config.allowed_domains)
         max_workers = openai_config.max_parallel_sections
-        blocked_values = (api_key,)
 
     provider_settings = getattr(provider, "settings", None)
     pipeline = DailyReportPipeline(
@@ -372,6 +477,7 @@ def _scan(args: argparse.Namespace, logger: logging.Logger) -> int:
     assert_safe_tree(site)
     assert_safe_tree(records)
     verified = verify_site_tree(site)
+    _verify_records_for_site(project_root)
     logger.info(
         "public and canonical artifact scan completed",
         extra={

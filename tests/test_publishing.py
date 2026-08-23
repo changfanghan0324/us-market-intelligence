@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from copy import deepcopy
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -62,6 +63,14 @@ def dated_mapping(day: date) -> dict[str, object]:
     return report
 
 
+def tree_snapshot(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
 def test_build_creates_full_copy_latest_and_sha_verified_manifest(tmp_path: Path) -> None:
     result = SiteBuilder(tmp_path).build(sample_report())
 
@@ -94,6 +103,88 @@ def test_second_identical_build_is_a_noop(tmp_path: Path) -> None:
     assert second.changed is False
     usage = json.loads((tmp_path / "records" / "usage.json").read_text(encoding="utf-8"))
     assert len(usage["reports"]) == 1
+
+
+def test_tampered_prior_report_blocks_next_day_before_any_mutation(
+    tmp_path: Path,
+) -> None:
+    builder = SiteBuilder(tmp_path)
+    first = builder.build(dated_mapping(date(2026, 8, 19)))
+    first.dated_html.write_bytes(
+        first.dated_html.read_bytes() + b"\n<!-- tampered prior report -->\n"
+    )
+    site_before = tree_snapshot(tmp_path / "site")
+    records_before = tree_snapshot(tmp_path / "records")
+
+    with pytest.raises(PublicationError, match="existing site failed integrity"):
+        builder.build(dated_mapping(date(2026, 8, 20)))
+
+    assert tree_snapshot(tmp_path / "site") == site_before
+    assert tree_snapshot(tmp_path / "records") == records_before
+    assert not list(tmp_path.glob(".publication-stage-*"))
+    assert not (
+        tmp_path / "site" / "reports" / "daily_market_report_2026-08-20.html"
+    ).exists()
+    assert not (
+        tmp_path / "records" / "daily_market_report_2026-08-20.json"
+    ).exists()
+
+
+def test_tampered_prior_record_blocks_next_day_before_any_mutation(
+    tmp_path: Path,
+) -> None:
+    builder = SiteBuilder(tmp_path)
+    builder.build(dated_mapping(date(2026, 8, 19)))
+    prior_record = (
+        tmp_path / "records" / "daily_market_report_2026-08-19.json"
+    )
+    prior_record.write_bytes(prior_record.read_bytes() + b"\n")
+    site_before = tree_snapshot(tmp_path / "site")
+    records_before = tree_snapshot(tmp_path / "records")
+
+    with pytest.raises(PublicationError, match="records failed integrity"):
+        builder.build(dated_mapping(date(2026, 8, 20)))
+
+    assert tree_snapshot(tmp_path / "site") == site_before
+    assert tree_snapshot(tmp_path / "records") == records_before
+    assert not list(tmp_path.glob(".publication-stage-*"))
+
+
+def test_valid_prior_site_allows_next_day_build(tmp_path: Path) -> None:
+    builder = SiteBuilder(tmp_path)
+    first = builder.build(dated_mapping(date(2026, 8, 19)))
+
+    second = builder.build(dated_mapping(date(2026, 8, 20)))
+
+    manifest = json.loads(second.manifest.read_text(encoding="utf-8"))
+    assert second.changed is True
+    assert first.dated_html.exists()
+    assert second.dated_html.exists()
+    assert [entry["report_date"] for entry in manifest["reports"]] == [
+        "2026-08-20",
+        "2026-08-19",
+    ]
+
+
+def test_canonical_history_newer_than_pages_is_rejected_before_mutation(
+    tmp_path: Path,
+) -> None:
+    builder = SiteBuilder(tmp_path)
+    builder.build(dated_mapping(date(2026, 8, 19)))
+    saved_site = tmp_path / "saved-site"
+    shutil.copytree(tmp_path / "site", saved_site)
+    builder.build(dated_mapping(date(2026, 8, 20)))
+    shutil.rmtree(tmp_path / "site")
+    saved_site.rename(tmp_path / "site")
+    site_before = tree_snapshot(tmp_path / "site")
+    records_before = tree_snapshot(tmp_path / "records")
+
+    with pytest.raises(PublicationError, match="records failed integrity"):
+        builder.build(dated_mapping(date(2026, 8, 21)))
+
+    assert tree_snapshot(tmp_path / "site") == site_before
+    assert tree_snapshot(tmp_path / "records") == records_before
+    assert not list(tmp_path.glob(".publication-stage-*"))
 
 
 def test_response_journal_is_reconciled_by_published_request_id(tmp_path: Path) -> None:
@@ -207,7 +298,7 @@ def test_symlink_in_managed_output_is_rejected_without_following_it(tmp_path: Pa
     outside.write_text("must remain", encoding="utf-8")
     (site_reports / "unsafe-link").symlink_to(outside)
 
-    with pytest.raises(PublicationError, match="symlinks"):
+    with pytest.raises(PublicationError, match="existing site failed integrity"):
         SiteBuilder(tmp_path).build(sample_report())
 
     assert outside.read_text(encoding="utf-8") == "must remain"
