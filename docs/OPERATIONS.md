@@ -12,20 +12,32 @@ runner invoking the same CLI. Pages can remain the delivery layer.
 
 ## Publication policy
 
-- Three validated market-news items and one validated macro event are required.
-- Earnings is required when tomorrow is an open NYSE session.
+- Three distinct, genuine official-feed market-news releases and one validated
+  macro event are required. No synthetic filler is permitted.
+- Official-free Market News uses a visibly disclosed 14-calendar-day maximum
+  lookback; every card retains its actual release date.
+- Global Macro uses a visibly disclosed 30-calendar-day source window and rejects
+  both older and future-dated events.
+- One exhausted market feed may publish only when the remaining genuine releases
+  satisfy the section contract; affected sections/provider runs and the report are
+  marked degraded with a fixed-label coverage disclosure.
+- In official-free mode, an open target session has no authoritative earnings
+  calendar and uses the degraded `data_unavailable` state with no predictions.
+- A calendar-capable mode still requires validated earnings coverage on an open
+  target session.
 - A closed tomorrow uses the exact required closure sentence.
 - An open session with no candidate scoring at least 7.0 uses a separate
   no-qualifying-candidate message.
-- The default earnings universe is explicitly marked `bounded_research`; it must
-  not be described as exhaustive without a reviewed licensed calendar adapter.
+- `data_unavailable` must never be described as no earnings or no qualifying
+  companies. `no_qualifying_candidates` is reserved for a universe that was
+  actually observed.
 - Research and Knowledge Refresh may show an explicit unavailable panel after
   bounded retries.
 - Required-section, schema, rendering, secret-scan, commit, deployment, or public
   verification failure marks the workflow failed.
 - A failed run never overwrites the last-known-good `latest.html`.
 - If artifacts were committed but Pages deployment failed, rerun without force:
-  paid research is skipped and the validated existing artifact is redeployed.
+  collection is skipped and the validated existing artifact is redeployed.
 
 ## Retention
 
@@ -50,40 +62,33 @@ raw licensed articles, or unlicensed numeric market datasets.
 Weekly:
 
 - review failed or delayed workflow runs;
-- inspect warning/error counts and OpenAI usage;
+- inspect warning/error counts, feed freshness, and distinct source links;
 - apply reviewed Dependabot updates;
 - confirm `latest.html` shows the expected date.
 
 Monthly:
 
 - manually dispatch a non-forced health run if the schedule has been quiet;
-- verify the Pages deployment environment and repository secret still exist;
-- review model/tool-call ceilings and costs;
+- verify the Pages deployment environment and official feed endpoints;
+- review request-size, timeout, and concurrency ceilings;
 - update and test the exchange-calendar dependency.
 
-The preflight reads published totals from `records/usage.json` and unreconciled
-per-response observations from `records/usage_events.jsonl`. Each received API
-response is journaled before content validation; failed-run observations are
-committed to the reports branch by a failure-only workflow step. Request IDs
-prevent successful responses from being counted twice. The system warns at 80%
-and stops new calls when observed usage has reached 100% of a configured ceiling.
-
-A connection failure or timeout that yields no response and no usage metadata
-cannot be measured locally. Per-call output/tool limits, bounded retries, and the
-section deadline contain that residual risk; provider billing remains the final
-source of truth.
+The official-free provider records zero model tokens and zero model web-search
+calls. Network timeouts, response sizes, XML parsing, and concurrency remain
+bounded. The existing usage ledger remains available for a deliberately selected
+metered adapter, but no API billing setup is part of default operations.
 
 GitHub documents that scheduled workflows in a public repository may be disabled
 after 60 days without repository activity. Re-enable the workflow from the
 Actions UI if this occurs. Do not introduce a long-lived personal token only to
 simulate activity.
 
-## Secret rotation
+## Optional adapter secret rotation
 
-Rotate the OpenAI key in GitHub Settings, then run the workflow manually. Do not
-delete the old key until the new run passes public verification. If a key ever
-appears in a commit or public artifact, revoke it immediately; deleting a file in
-a later commit is insufficient.
+Official-free mode has no provider secret to rotate. If the optional OpenAI
+adapter is deliberately enabled, rotate its key in GitHub Settings and run the
+workflow manually before revoking the old key. If any key appears in a commit or
+public artifact, revoke it immediately; a later deletion is insufficient.
 
 ## Future portfolio deployment
 

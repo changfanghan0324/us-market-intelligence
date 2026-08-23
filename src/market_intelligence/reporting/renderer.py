@@ -365,6 +365,7 @@ def _project_earnings(section: Any) -> dict[str, Any]:
         "available",
         "market_closed",
         "no_qualifying_candidates",
+        "data_unavailable",
         "unavailable",
     }
     if status not in allowed_statuses:
@@ -372,10 +373,19 @@ def _project_earnings(section: Any) -> dict[str, Any]:
     coverage = _text(_get(section, "universe_coverage"), "earnings universe_coverage")
     if coverage not in {
         "not_applicable",
+        "unavailable",
         "bounded_research",
         "authoritative_full_calendar",
     }:
         raise PublicProjectionError("earnings universe coverage is not publishable")
+    if status == "data_unavailable" and coverage != "unavailable":
+        raise PublicProjectionError(
+            "data-unavailable earnings must disclose unavailable coverage"
+        )
+    if coverage == "unavailable" and status != "data_unavailable":
+        raise PublicProjectionError(
+            "unavailable earnings coverage requires data-unavailable status"
+        )
     return {
         "status": status,
         "target_date": _text(_get(section, "target_date"), "earnings target_date"),
@@ -491,6 +501,9 @@ def _project_section_statuses(statuses: Any) -> dict[str, dict[str, str]]:
     return {
         "market_news": _project_section_state(_get(statuses, "market_news")),
         "global_macro": _project_section_state(_get(statuses, "global_macro")),
+        "earnings": _project_section_state(
+            _get(statuses, "earnings", {"status": "available", "detail": None})
+        ),
         "research_discovery": _project_section_state(
             _get(statuses, "research_discovery")
         ),
@@ -514,6 +527,43 @@ def project_public_report(report: Any) -> dict[str, Any]:
     if parsed_date.isoformat() != report_date:
         raise PublicProjectionError("report_date must use canonical YYYY-MM-DD")
 
+    earnings = _project_earnings(_get(report, "earnings"))
+    section_statuses = _project_section_statuses(_get(report, "section_statuses"))
+    validation_status = _text(
+        _get(report, "validation_status"), "validation_status"
+    )
+    for required_section in ("market_news", "global_macro"):
+        required_state = section_statuses[required_section]
+        if required_state["status"] == "unavailable":
+            raise PublicProjectionError(
+                f"required section cannot be unavailable: {required_section}"
+            )
+        if (
+            required_state["status"] == "degraded"
+            and validation_status != "degraded"
+        ):
+            raise PublicProjectionError(
+                f"degraded {required_section} must mark the report degraded"
+            )
+    earnings_state = section_statuses["earnings"]
+    if earnings["status"] == "data_unavailable":
+        if earnings_state["status"] != "degraded":
+            raise PublicProjectionError(
+                "data-unavailable earnings must have degraded section status"
+            )
+        if earnings_state["detail"] != earnings["message"]:
+            raise PublicProjectionError(
+                "data-unavailable earnings detail must match its public message"
+            )
+        if validation_status != "degraded":
+            raise PublicProjectionError(
+                "data-unavailable earnings must mark the report degraded"
+            )
+    elif earnings_state["status"] != "available":
+        raise PublicProjectionError(
+            "complete earnings coverage must have available section status"
+        )
+
     return {
         "schema_version": _text(_get(report, "schema_version"), "schema_version"),
         "report_id": report_id,
@@ -526,14 +576,12 @@ def project_public_report(report: Any) -> dict[str, Any]:
             _project_news(item)
             for item in _list(_get(report, "market_news"), "market_news")
         ],
-        "earnings": _project_earnings(_get(report, "earnings")),
+        "earnings": earnings,
         "global_macro": _project_macro(_get(report, "global_macro")),
         "research_discovery": _project_research(_get(report, "research_discovery")),
         "knowledge_refresh": _project_knowledge(_get(report, "knowledge_refresh")),
-        "section_statuses": _project_section_statuses(_get(report, "section_statuses")),
-        "validation_status": _text(
-            _get(report, "validation_status"), "validation_status"
-        ),
+        "section_statuses": section_statuses,
+        "validation_status": validation_status,
     }
 
 

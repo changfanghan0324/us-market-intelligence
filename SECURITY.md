@@ -1,20 +1,26 @@
 # Security policy
 
-## Secrets
+## Secrets and runtime modes
 
-The application accepts `OPENAI_API_KEY` only from the runtime environment. In
-production, configure it as a GitHub Actions repository/environment secret. Never
-commit an `.env` file, API key, personal access token, brokerage credential, or
-encrypted secret blob to this repository.
+The production `official_free` mode has no research-provider secret. The
+committed GitHub workflow intentionally does not inject `OPENAI_API_KEY`, and the
+default configuration does not read it. Never commit an `.env` file, API key,
+personal access token, brokerage credential, or encrypted secret blob.
+
+The code retains an optional OpenAI adapter, but changing `research.provider`
+alone is not a supported production switch. Enabling it requires a separate
+reviewed workflow change that maps `secrets.OPENAI_API_KEY` only into the generate
+step, plus renewed security/cost tests and a repository secret. The runtime then
+accepts the key only from that environment variable and fails closed if missing.
 
 The daily workflow does not persist its repository credential. Git access is
 injected only into the reports-branch fetch and final push steps. Repository
 rulesets should separately protect `main` and prohibit force-push/deletion of the
 generated `reports` history.
 
-Before publication, scanners reject known credential formats, private-data
-markers, and the exact runtime API-key value. The exact-value check also covers
-opaque high-entropy secrets that do not have a recognizable prefix.
+Before publication, scanners reject known credential formats and private-data
+markers. In a separately wired OpenAI mode they also reject the exact runtime
+API-key value, covering opaque high-entropy secrets without a recognizable prefix.
 
 If a credential appears in a commit, workflow log, artifact, or public report:
 

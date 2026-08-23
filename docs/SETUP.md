@@ -3,8 +3,7 @@
 ## Prerequisites
 
 - A GitHub repository with Actions and Pages available.
-- An OpenAI Platform API key with billing enabled.
-- Permission to add repository Actions secrets and configure Pages.
+- Permission to configure Actions and Pages.
 - For optional local development only: uv 0.12.2 and Python 3.12.
 
 Claude Code is not a runtime dependency. It was used only for the independent
@@ -26,28 +25,27 @@ repository's GitHub Actions bot to append report commits. The workflow disables
 persisted checkout credentials and exposes the repository token only to the
 read/final-push steps.
 
-## 2. Configure the required secret
+## 2. Keep the free provider selected
 
-In the repository, open:
+The committed production configuration contains:
 
-`Settings → Secrets and variables → Actions → New repository secret`
+```yaml
+research:
+  provider: official_free
+```
 
-Create exactly this secret:
+No OpenAI account, API key, or API credit balance is required. The job reads
+bounded RSS metadata from the Federal Reserve, SEC, and BLS public feeds. Do not
+add tokens, cookies, commercial endpoints, or unofficial mirrors to the free
+provider.
 
-- Name: `OPENAI_API_KEY`
-- Value: your OpenAI Platform API key
-
-Never paste the key into `config.yaml`, workflow YAML, source, an issue, a log,
-or a generated report.
-
-If the secret is missing, generation exits before research or publication. The
-previous `latest.html` remains intact and the workflow log prints fixed setup
-instructions without revealing environment contents.
-
-The API organization must also have an available API credit balance. A ChatGPT
-subscription does not fund API requests. If the workflow reports that the credit
-balance is exhausted, use the official [API billing portal](https://platform.openai.com/account/billing),
-add credits, wait a few minutes for the balance to update, and rerun the workflow.
+`OPENAI_API_KEY` in `.env.example` is an optional compatibility seam only. If a
+future operator deliberately selects the separate OpenAI adapter, the key must
+be supplied through the process environment and never placed in YAML, source,
+issues, logs, or generated reports. The committed workflow deliberately has no
+OpenAI secret mapping: production enablement requires a separate security/cost
+review, a minimal step-level GitHub Secrets mapping, and renewed tests. Changing
+the provider name alone fails closed and has no effect on `official_free`.
 
 ## 3. Enable GitHub Pages
 
@@ -63,7 +61,7 @@ Open `Actions → Daily Market Intelligence → Run workflow`.
 
 Leave `force` disabled for the first run. The workflow will:
 
-1. validate configuration and the required secret;
+1. validate the no-secret free configuration;
 2. generate and validate the canonical report;
 3. render a standalone HTML report;
 4. update the `reports` branch;
@@ -71,7 +69,7 @@ Leave `force` disabled for the first run. The workflow will:
 6. deploy the site through GitHub Pages;
 7. verify that `latest.html` contains the new immutable report ID.
 
-An idempotent rerun does not repeat paid research, but it does redeploy the
+An idempotent rerun does not repeat collection, but it does redeploy the
 validated existing Pages artifact. This is the recovery path when a previous
 Pages deployment failed after the reports-branch commit.
 
@@ -90,10 +88,10 @@ uv sync --frozen --extra dev
 uv run --frozen --extra dev pytest
 ```
 
-The offline test suite uses synthetic fixtures and does not call OpenAI. A live
-generation requires `OPENAI_API_KEY` in the process environment; never pass it as
-a command-line argument. Production dependencies are installed from the
-hash-locked `uv.lock` file.
+The offline test suite uses synthetic fixtures and makes no network call. A live
+`official_free` generation needs outbound HTTPS access to the configured official
+feeds but no secret. Production dependencies are installed from the hash-locked
+`uv.lock` file.
 
 ## Optional licensed market data
 
@@ -102,9 +100,10 @@ consensus revenue data. Those fields show as unavailable until a provider with
 public-display/redistribution rights is deliberately enabled. See
 `DATA_LICENSING.md` before adding any vendor.
 
-## Optional company investor-relations sources
+## Free-mode limitations
 
-To let the research step use a reviewed issuer IR host, add its hostname (without
-`https://` or a path) to both `openai.allowed_domains` and
-`openai.company_ir_domains` in `config/config.yaml`. The latter is injected only
-into News and Earnings searches. Review each host before committing it.
+The free source set has no authoritative upcoming-earnings calendar. On an open
+target session the Earnings panel is intentionally `data_unavailable`; it does
+not claim that no companies report. Market News may use genuine releases from a
+visibly disclosed 14-day window. If fewer than three distinct releases survive
+validation, publication stops and the previous `latest.html` remains available.

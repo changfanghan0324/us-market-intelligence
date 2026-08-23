@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>BLS latest numbers</title>
+    <item>
+      <title>State Employment and Unemployment summary released</title>
+      <link>https://www.bls.gov/news.release/laus.nr0.htm</link>
+      <pubDate>Thu, 20 Aug 2026 13:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Future labor release must not cross the source cutoff</title>
+      <link>https://www.bls.gov/news.release/future.nr0.htm</link>
+      <pubDate>Fri, 21 Aug 2026 14:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>

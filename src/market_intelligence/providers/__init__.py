@@ -24,6 +24,12 @@ from .market_data import (
     MarketMetric,
     MarketMetricStatus,
 )
+from .official_research import (
+    OFFICIAL_ALLOWED_DOMAINS,
+    OfficialFeedsResearchProvider,
+    OfficialFeedsResearchSettings,
+    OfficialResearchProvider,
+)
 from .openai_research import (
     OpenAIResearchProvider,
     OpenAIResearchSettings,
@@ -31,6 +37,7 @@ from .openai_research import (
 )
 
 __all__ = [
+    "OFFICIAL_ALLOWED_DOMAINS",
     "OPENAI_BILLING_CONFIGURATION_MESSAGE",
     "AuthenticationProviderError",
     "BillingProviderError",
@@ -42,6 +49,9 @@ __all__ = [
     "MarketDataProvider",
     "MarketMetric",
     "MarketMetricStatus",
+    "OfficialFeedsResearchProvider",
+    "OfficialFeedsResearchSettings",
+    "OfficialResearchProvider",
     "OpenAIResearchProvider",
     "OpenAIResearchSettings",
     "PermanentProviderError",

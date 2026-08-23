@@ -5,15 +5,15 @@ they are not authentication or a redistribution license.
 
 ## News and research
 
-The system publishes short, original analysis and links to sources. It does not
-copy full articles, bypass paywalls, or archive raw publisher text. Preferred
-sources follow the Tier 1/Tier 2 order in the report specification. Publisher
-labels are derived from validated hostnames rather than trusted model claims.
+The default system publishes deterministic scenario/monitor analysis and links
+to releases from the Federal Reserve, SEC, and BLS. It parses RSS metadata only;
+it does not fetch or copy full articles, bypass paywalls, or archive raw publisher
+text. Publisher labels come from an exact validated-host mapping.
 
 ## Quotes and consensus estimates
 
-OpenAI web search is an analysis and discovery tool, not a licensed quote feed.
-The OpenAI output schema therefore cannot populate:
+Official RSS is a release-discovery mechanism, not a licensed quote feed. It
+cannot populate:
 
 - current price;
 - market capitalization;
@@ -24,11 +24,11 @@ Only a separately configured `MarketDataProvider` with field-level provenance an
 confirmed public-display/redistribution rights may populate those values. With no
 such provider, the HTML visibly labels them unavailable.
 
-The same distinction applies to upcoming earnings coverage. Web research can
-produce a bounded, cited candidate set, but it cannot establish that every listed
-issuer was checked. The default report therefore displays a coverage limitation.
-An authoritative full-universe mode requires a licensed earnings-calendar feed
-with event-time provenance and public-display rights.
+The same distinction applies to upcoming earnings coverage. The official-free
+feeds are not an authoritative upcoming-earnings calendar. The default report
+therefore publishes `data_unavailable`, not an empty calendar and not a
+no-qualifying-company conclusion. An authoritative mode requires a reviewed
+calendar feed with event-time provenance and suitable public-display rights.
 
 Financial Modeling Prep is a possible future provider, but its public display and
 redistribution terms must be confirmed with the vendor before enabling it. Free
@@ -37,15 +37,10 @@ on Pages.
 
 ## Official filings
 
-SEC EDGAR APIs are appropriate as a future companion source for official filings
-and actual reported values, subject to SEC fair-access limits and a declared
-User-Agent. EDGAR is not a complete upcoming earnings calendar or real-time quote
-feed.
-
-Reviewed issuer investor-relations hosts can be added under
-`openai.company_ir_domains`; each must also appear in the global `allowed_domains`
-list. This expands only News and Earnings web search and does not turn IR pages
-into a complete calendar.
+SEC press-release RSS is part of the default source set. SEC EDGAR APIs remain a
+possible future companion for official filings and actual reported values,
+subject to SEC fair-access limits and a declared User-Agent. Neither SEC source
+is a complete upcoming-earnings calendar or real-time quote feed.
 
 ## Private data
 

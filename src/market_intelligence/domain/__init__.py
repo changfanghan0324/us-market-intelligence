@@ -2,6 +2,7 @@
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_DATA_UNAVAILABLE_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
     UNLICENSED_METRIC_MESSAGE,
     DailyReport,
@@ -36,6 +37,7 @@ from market_intelligence.domain.scoring import (
 
 __all__ = [
     "CLOSED_MARKET_MESSAGE",
+    "EARNINGS_DATA_UNAVAILABLE_MESSAGE",
     "NO_QUALIFYING_EARNINGS_MESSAGE",
     "UNLICENSED_METRIC_MESSAGE",
     "DailyReport",

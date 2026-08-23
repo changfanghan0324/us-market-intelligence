@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -8,6 +9,7 @@ import pytest
 
 from market_intelligence.domain.models import (
     CLOSED_MARKET_MESSAGE,
+    EARNINGS_DATA_UNAVAILABLE_MESSAGE,
     NO_QUALIFYING_EARNINGS_MESSAGE,
     MarketContext,
 )
@@ -256,18 +258,27 @@ def knowledge_data() -> KnowledgeRefreshResponse:
     )
 
 
-def provider_result(data: Any, section: ResearchSection, source_count: int) -> ProviderResult[Any]:
+def provider_result(
+    data: Any,
+    section: ResearchSection,
+    source_count: int,
+    *,
+    provider: str = "openai",
+    attempts: int = 1,
+    warning_codes: tuple[str, ...] = (),
+) -> ProviderResult[Any]:
     return ProviderResult(
         data=data,
         accessed_at=NOW,
         metadata=ProviderRunMetadata(
-            provider="openai",
+            provider=provider,
             model="gpt-5.6-terra",
             section=section,
-            attempts=1,
+            attempts=attempts,
             duration_ms=12,
             request_id=f"req_{section.value}",
             source_count=source_count,
+            warning_codes=warning_codes,
             usage=ProviderUsage(input_tokens=100, output_tokens=50, total_tokens=150),
         ),
     )
@@ -394,6 +405,10 @@ def test_closed_market_skips_earnings_call_and_uses_exact_sentence() -> None:
     assert report.earnings.status == "market_closed"
     assert report.earnings.message == CLOSED_MARKET_MESSAGE
     assert report.earnings.candidates == []
+    earnings_run = next(
+        run for run in report.provider_runs if run.section == ResearchSection.EARNINGS.value
+    )
+    assert earnings_run.provider == "deterministic policy"
 
 
 def test_open_market_with_no_qualifying_candidates_is_not_closed_or_failed() -> None:
@@ -406,10 +421,183 @@ def test_open_market_with_no_qualifying_candidates_is_not_closed_or_failed() -> 
     assert report.validation_status == "valid"
 
 
+def test_free_mode_skips_unavailable_earnings_calendar_without_claiming_no_events() -> None:
+    provider = FakeResearchProvider(complete_outcomes())
+    policy = PipelinePolicy(earnings_calendar_available=False)
+
+    report = DailyReportPipeline(provider, policy=policy).generate(
+        open_market_context()
+    )
+
+    assert ResearchSection.EARNINGS not in provider.calls
+    assert report.earnings.status == "data_unavailable"
+    assert report.earnings.universe_coverage == "unavailable"
+    assert report.earnings.message == EARNINGS_DATA_UNAVAILABLE_MESSAGE
+    assert report.earnings.candidates == []
+    assert report.validation_status == "degraded"
+    assert EARNINGS_DATA_UNAVAILABLE_MESSAGE in report.warnings
+    assert report.section_statuses.earnings.status == "degraded"
+    assert (
+        report.section_statuses.earnings.detail
+        == EARNINGS_DATA_UNAVAILABLE_MESSAGE
+    )
+    earnings_run = next(
+        run for run in report.provider_runs if run.section == ResearchSection.EARNINGS.value
+    )
+    assert earnings_run.status == "skipped"
+    assert earnings_run.attempts == 0
+    assert earnings_run.provider == "deterministic policy"
+    assert len(provider.calls) == 4
+
+
+def test_earnings_calendar_capability_rejects_non_boolean_values() -> None:
+    with pytest.raises(TypeError, match="must be a boolean"):
+        PipelinePolicy(earnings_calendar_available="false")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [(0, ValueError), (31, ValueError), (1.5, TypeError), (True, TypeError)],
+)
+def test_market_news_lookback_is_bounded(
+    value: Any, error: type[Exception]
+) -> None:
+    with pytest.raises(error, match="market news lookback must be"):
+        PipelinePolicy(market_news_lookback_days=value)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [(0, ValueError), (91, ValueError), (30.5, TypeError), (False, TypeError)],
+)
+def test_global_macro_lookback_is_bounded(
+    value: Any, error: type[Exception]
+) -> None:
+    with pytest.raises(error, match="global macro lookback must be"):
+        PipelinePolicy(global_macro_lookback_days=value)  # type: ignore[arg-type]
+
+
+def test_extended_news_lookback_accepts_genuine_older_release_and_discloses_it() -> None:
+    outcomes = complete_outcomes()
+    news = outcomes[ResearchSection.MARKET_NEWS].data
+    candidates = list(news.candidates)
+    candidates[2] = candidates[2].model_copy(
+        update={"event_date": date(2026, 8, 12)}
+    )
+    outcomes[ResearchSection.MARKET_NEWS] = provider_result(
+        news.model_copy(update={"candidates": candidates}),
+        ResearchSection.MARKET_NEWS,
+        3,
+    )
+    provider = FakeResearchProvider(outcomes)
+
+    report = DailyReportPipeline(
+        provider,
+        policy=PipelinePolicy(market_news_lookback_days=14),
+    ).generate(open_market_context())
+
+    assert {item.event_date for item in report.market_news} == {
+        date(2026, 8, 19),
+        date(2026, 8, 12),
+    }
+    assert report.section_statuses.market_news.status == "available"
+    assert "prior 14 calendar days" in report.section_statuses.market_news.detail
+
+
+@pytest.mark.parametrize(
+    "event_date",
+    [date(2026, 7, 19), date(2026, 8, 20)],
+)
+def test_global_macro_must_be_inside_bounded_past_window(event_date: date) -> None:
+    outcomes = complete_outcomes()
+    macro = outcomes[ResearchSection.GLOBAL_MACRO].data
+    outcomes[ResearchSection.GLOBAL_MACRO] = provider_result(
+        macro.model_copy(
+            update={"event": macro.event.model_copy(update={"event_date": event_date})}
+        ),
+        ResearchSection.GLOBAL_MACRO,
+        1,
+    )
+
+    with pytest.raises(ReportValidationError, match="configured source window"):
+        DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+            open_market_context()
+        )
+
+
+def test_partial_official_feed_outage_degrades_required_sections_transparently() -> None:
+    outcomes = complete_outcomes()
+    warning_codes = ("official_feed_unavailable_bls_latest",) * 2
+    outcomes[ResearchSection.MARKET_NEWS] = provider_result(
+        news_data(),
+        ResearchSection.MARKET_NEWS,
+        3,
+        provider="official_public_sources",
+        attempts=2,
+        warning_codes=warning_codes,
+    )
+    outcomes[ResearchSection.GLOBAL_MACRO] = provider_result(
+        macro_data(),
+        ResearchSection.GLOBAL_MACRO,
+        1,
+        provider="official_public_sources",
+        attempts=2,
+        warning_codes=warning_codes,
+    )
+
+    report = DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+        open_market_context()
+    )
+
+    assert len(report.market_news) == 3
+    assert report.global_macro is not None
+    assert report.section_statuses.market_news.status == "degraded"
+    assert report.section_statuses.global_macro.status == "degraded"
+    assert report.validation_status == "degraded"
+    assert len(report.warnings) == 1
+    warning = report.warnings[0]
+    assert "BLS Latest Numbers" in warning
+    assert "official_feed_unavailable" not in warning
+    assert warning in report.section_statuses.market_news.detail
+    assert warning in report.section_statuses.global_macro.detail
+    required_runs = {
+        run.section: run
+        for run in report.provider_runs
+        if run.section in {"market_news", "global_macro"}
+    }
+    assert {run.status for run in required_runs.values()} == {"degraded"}
+    assert required_runs["market_news"].warning_codes == [
+        "official_feed_unavailable_bls_latest"
+    ]
+
+
+def test_unknown_official_feed_warning_fails_closed() -> None:
+    outcomes = complete_outcomes()
+    outcomes[ResearchSection.MARKET_NEWS] = provider_result(
+        news_data(),
+        ResearchSection.MARKET_NEWS,
+        3,
+        warning_codes=("official_feed_unavailable_unknown",),
+    )
+
+    with pytest.raises(ReportValidationError, match="unknown official feed warning"):
+        DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+            open_market_context()
+        )
+
+
 def test_optional_failures_become_explicit_degraded_sections() -> None:
     outcomes = complete_outcomes()
+    outcomes[ResearchSection.MARKET_NEWS] = provider_result(
+        news_data(),
+        ResearchSection.MARKET_NEWS,
+        3,
+        provider="official_feeds",
+    )
     outcomes[ResearchSection.RESEARCH_DISCOVERY] = TransientProviderError(
-        "safe research failure", section=ResearchSection.RESEARCH_DISCOVERY
+        "safe research failure",
+        section=ResearchSection.RESEARCH_DISCOVERY,
+        attempts=2,
     )
     outcomes[ResearchSection.KNOWLEDGE_REFRESH] = TransientProviderError(
         "safe knowledge failure", section=ResearchSection.KNOWLEDGE_REFRESH
@@ -424,6 +612,84 @@ def test_optional_failures_become_explicit_degraded_sections() -> None:
     assert report.section_statuses.research_discovery.status == "unavailable"
     assert report.section_statuses.knowledge_refresh.status == "unavailable"
     assert len(report.warnings) == 2
+    optional_runs = {
+        run.section: run
+        for run in report.provider_runs
+        if run.section
+        in {
+            ResearchSection.RESEARCH_DISCOVERY.value,
+            ResearchSection.KNOWLEDGE_REFRESH.value,
+        }
+    }
+    assert {
+        run.provider for run in optional_runs.values()
+    } == {"official_feeds"}
+    assert optional_runs[ResearchSection.RESEARCH_DISCOVERY.value].attempts == 2
+    assert optional_runs[ResearchSection.KNOWLEDGE_REFRESH.value].attempts == 0
+
+
+def test_unclassified_optional_failures_degrade_without_exposing_raw_text() -> None:
+    outcomes = complete_outcomes()
+    outcomes[ResearchSection.RESEARCH_DISCOVERY] = ValueError(
+        "raw remote research payload must remain private"
+    )
+    outcomes[ResearchSection.KNOWLEDGE_REFRESH] = RuntimeError(
+        "raw internal knowledge failure must remain private"
+    )
+
+    report = DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+        open_market_context()
+    )
+
+    assert report.validation_status == "degraded"
+    assert report.section_statuses.research_discovery.status == "unavailable"
+    assert report.section_statuses.knowledge_refresh.status == "unavailable"
+    public_warning_text = " ".join(report.warnings)
+    assert "raw remote" not in public_warning_text
+    assert "raw internal" not in public_warning_text
+
+
+def test_provider_metadata_section_must_match_invoked_section() -> None:
+    outcomes = complete_outcomes()
+    original = outcomes[ResearchSection.MARKET_NEWS]
+    outcomes[ResearchSection.MARKET_NEWS] = ProviderResult(
+        data=original.data,
+        accessed_at=original.accessed_at,
+        metadata=replace(
+            original.metadata,
+            section=ResearchSection.GLOBAL_MACRO,
+        ),
+    )
+
+    with pytest.raises(ReportValidationError, match="invoked section"):
+        DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+            open_market_context()
+        )
+
+
+def test_successful_optional_source_warning_marks_report_degraded() -> None:
+    outcomes = complete_outcomes()
+    outcomes[ResearchSection.RESEARCH_DISCOVERY] = provider_result(
+        research_data(),
+        ResearchSection.RESEARCH_DISCOVERY,
+        1,
+        provider="official_feeds",
+        warning_codes=("official_feed_unavailable_fed_research",),
+    )
+
+    report = DailyReportPipeline(FakeResearchProvider(outcomes)).generate(
+        open_market_context()
+    )
+
+    assert report.validation_status == "degraded"
+    assert report.section_statuses.research_discovery.status == "degraded"
+    assert report.section_statuses.research_discovery.detail in report.warnings
+    research_run = next(
+        run
+        for run in report.provider_runs
+        if run.section == ResearchSection.RESEARCH_DISCOVERY.value
+    )
+    assert research_run.status == "degraded"
 
 
 def test_required_failure_stops_before_optional_calls() -> None:

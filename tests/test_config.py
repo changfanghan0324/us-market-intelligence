@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from market_intelligence.config import (
     AppConfig,
     MarketDataConfig,
+    OpenAIConfig,
     load_config,
     require_openai_api_key,
     require_pages_base_url,
@@ -24,6 +25,13 @@ def valid_config_data() -> dict[str, object]:
             "timezone": "America/New_York",
             "language": "zh-TW",
             "public_history_count": 8,
+        },
+        "research": {
+            "provider": "official_free",
+            "official": {
+                "request_timeout_seconds": 20.0,
+                "max_parallel_sections": 1,
+            },
         },
         "openai": {
             "api_key_env": "OPENAI_API_KEY",
@@ -81,19 +89,11 @@ report:
   timezone: America/New_York
   language: zh-TW
   public_history_count: 8
-openai:
-  api_key_env: OPENAI_API_KEY
-  model: gpt-5.4
-  reasoning_effort: medium
-  search_context_size: medium
-  max_output_tokens_per_section: 5000
-  max_tool_calls_per_section: 6
-  max_retries: 2
-  request_timeout_seconds: 90.0
-  total_deadline_seconds: 600.0
-  max_parallel_sections: 3
-  store: false
-  allowed_domains: [sec.gov, federalreserve.gov]
+research:
+  provider: official_free
+  official:
+    request_timeout_seconds: 20.0
+    max_parallel_sections: 1
 market_data:
   enabled: false
   provider: disabled
@@ -120,11 +120,9 @@ schedule:
     )
     loaded = load_config(config_file)
     assert loaded.report.public_history_count == 8
-    assert loaded.openai.api_key_env == "OPENAI_API_KEY"
-    assert loaded.openai.allowed_domains == ["sec.gov", "federalreserve.gov"]
-    assert loaded.openai.company_ir_domains == []
-    assert loaded.openai.usage_warning_fraction == 0.8
-    assert loaded.openai.monthly_web_search_call_limit == 500
+    assert loaded.research.provider == "official_free"
+    assert loaded.research.official.request_timeout_seconds == 20.0
+    assert loaded.openai is None
     assert '"api_key":' not in loaded.model_dump_json()
 
 
@@ -149,7 +147,7 @@ def test_load_error_never_echoes_mistaken_secret(tmp_path: Path) -> None:
 
 
 def test_missing_openai_key_stops_with_fixed_configuration_instructions() -> None:
-    config = AppConfig.model_validate(valid_config_data())
+    config = OpenAIConfig(allowed_domains=["sec.gov"])
     with pytest.raises(ConfigurationError) as captured:
         require_openai_api_key(config, environ={})
     message = str(captured.value)
@@ -158,18 +156,45 @@ def test_missing_openai_key_stops_with_fixed_configuration_instructions() -> Non
 
 
 def test_openai_key_is_read_only_from_supplied_environment() -> None:
-    config = AppConfig.model_validate(valid_config_data())
+    config = OpenAIConfig(allowed_domains=["sec.gov"])
     value = "sk-" + "environment-only-example-value"
     assert require_openai_api_key(config, environ={"OPENAI_API_KEY": value}) == value
     assert value not in config.model_dump_json()
 
 
 def test_openai_key_shape_check_does_not_echo_rejected_value() -> None:
-    config = AppConfig.model_validate(valid_config_data())
+    config = OpenAIConfig(allowed_domains=["sec.gov"])
     rejected = "not-an-openai-secret-but-long-enough"
     with pytest.raises(ConfigurationError) as captured:
         require_openai_api_key(config, environ={"OPENAI_API_KEY": rejected})
     assert rejected not in str(captured.value)
+
+
+def test_openai_mode_requires_explicit_non_secret_configuration() -> None:
+    raw = valid_config_data()
+    raw["research"] = {
+        "provider": "openai",
+        "official": {
+            "request_timeout_seconds": 20.0,
+            "max_parallel_sections": 1,
+        },
+    }
+    raw.pop("openai")
+
+    with pytest.raises(ValidationError, match="requires an openai configuration"):
+        AppConfig.model_validate(raw)
+
+
+def test_official_free_mode_rejects_unknown_provider_and_needs_no_openai_config() -> None:
+    raw = valid_config_data()
+    raw.pop("openai")
+    assert AppConfig.model_validate(raw).openai is None
+
+    research = raw["research"]
+    assert isinstance(research, dict)
+    raw["research"] = {**research, "provider": "unreviewed-free-service"}
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(raw)
 
 
 def test_market_data_requires_explicit_public_display_license() -> None:
