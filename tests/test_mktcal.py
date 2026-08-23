@@ -64,7 +64,7 @@ def _eligible_utc_hours(day: date) -> list[int]:
         hour
         for hour in (12, 13)
         if is_eligible_scheduled_slot(
-            datetime(day.year, day.month, day.day, hour, 0, tzinfo=UTC)
+            datetime(day.year, day.month, day.day, hour, 7, tzinfo=UTC)
         )
     ]
 
@@ -86,7 +86,7 @@ def test_2026_dst_boundaries_have_exactly_one_eligible_slot(
 
 
 def test_gate_uses_scheduled_slot_not_delayed_wall_clock_start() -> None:
-    scheduled_slot = datetime(2026, 3, 8, 12, 0, tzinfo=UTC)
+    scheduled_slot = datetime(2026, 3, 8, 12, 7, tzinfo=UTC)
     delayed_start = datetime(2026, 3, 8, 12, 47, tzinfo=UTC)
     assert is_eligible_scheduled_slot(scheduled_slot)
     assert not is_eligible_scheduled_slot(delayed_start)
@@ -94,8 +94,8 @@ def test_gate_uses_scheduled_slot_not_delayed_wall_clock_start() -> None:
 
 def test_timezone_aware_local_schedule_is_eligible_across_dst() -> None:
     new_york = ZoneInfo("America/New_York")
-    assert is_eligible_scheduled_slot(datetime(2026, 1, 15, 8, 0, tzinfo=new_york))
-    assert is_eligible_scheduled_slot(datetime(2026, 7, 15, 8, 0, tzinfo=new_york))
+    assert is_eligible_scheduled_slot(datetime(2026, 1, 15, 8, 7, tzinfo=new_york))
+    assert is_eligible_scheduled_slot(datetime(2026, 7, 15, 8, 7, tzinfo=new_york))
 
 
 def test_schedule_requires_an_exact_slot_and_manual_dispatch_bypasses() -> None:

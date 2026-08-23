@@ -2,7 +2,13 @@ name: Daily Market Intelligence
 
 on:
   schedule:
-    - cron: "0 8 * * *"
+    # Three non-top-of-hour attempts reduce GitHub scheduler delay/drop risk.
+    # Same-day runs are validated no-ops before any provider is constructed.
+    - cron: "7 8 * * *"
+      timezone: "America/New_York"
+    - cron: "37 8 * * *"
+      timezone: "America/New_York"
+    - cron: "7 9 * * *"
       timezone: "America/New_York"
   workflow_dispatch:
     inputs:

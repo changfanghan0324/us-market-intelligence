@@ -38,5 +38,11 @@ Actions now supports an IANA `timezone` on scheduled workflows. The final design
 therefore uses one 08:00 `America/New_York` schedule instead of duplicate UTC
 crons, while retaining timezone tests.
 
+That single-slot decision was superseded after the 2026-08-23 production
+reliability review. The workflow now uses independent 08:07, 08:37, and 09:07
+`America/New_York` attempts. They are not DST workarounds: they reduce documented
+GitHub scheduler delay/drop risk, while date-keyed idempotency makes later
+same-day attempts safe.
+
 The default output language is `zh-TW`, inferred from the Traditional Chinese
 brief and kept configurable. Implementation was authorized after this record.

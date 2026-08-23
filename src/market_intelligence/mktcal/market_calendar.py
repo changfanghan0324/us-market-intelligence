@@ -125,9 +125,9 @@ def is_eligible_scheduled_slot(
     *,
     timezone_name: str = "America/New_York",
     hour: int = 8,
-    minute: int = 0,
+    minute: int = 7,
 ) -> bool:
-    """Evaluate the scheduled timestamp, never a potentially delayed start time."""
+    """Evaluate the primary scheduled timestamp, never a delayed start time."""
 
     if scheduled_at.tzinfo is None or scheduled_at.utcoffset() is None:
         raise ValueError("scheduled_at must be timezone-aware")

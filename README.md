@@ -29,7 +29,8 @@ These are validated schema fields, not optional prompt suggestions.
 ## Deployment model
 
 ```text
-08:00 America/New_York GitHub schedule
+08:07 America/New_York primary schedule
+  + 08:37 and 09:07 safe retry schedules
   → secure configuration preflight
   → bounded official .gov RSS collection
   → deterministic ranking and validation
@@ -140,10 +141,13 @@ the mandatory findings were reconciled.
 
 ## Important limitations
 
-GitHub scheduled workflows are best-effort. The workflow is timezone-aware and
-targets 08:00 New York time, but GitHub can delay or drop scheduled runs under
-load. If the before-09:00 deadline becomes contractual, invoke the same CLI from
-a scheduler with an SLA and retain GitHub Pages as the publication surface.
+GitHub scheduled workflows are best-effort. The workflow uses timezone-aware,
+non-top-of-hour attempts at 08:07, 08:37, and 09:07 New York time so a delayed,
+dropped, or failed first attempt has two independent fallbacks. A later attempt
+validates and safely redeploys an existing same-day report without calling the
+provider again. If a strict delivery deadline becomes contractual, invoke the
+same CLI from a scheduler with an SLA and retain GitHub Pages as the publication
+surface.
 
 The free provider has no token or model-search usage to bill. Its remaining costs
 are ordinary GitHub Actions/Pages usage and network access, subject to GitHub's
