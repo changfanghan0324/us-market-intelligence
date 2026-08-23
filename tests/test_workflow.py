@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from market_intelligence.config import load_config
@@ -15,8 +16,21 @@ def test_scheduled_production_run_uses_free_mode_without_secret_injection() -> N
     assert config.openai is None
     assert "OPENAI_API_KEY:" not in workflow
     assert "secrets.OPENAI_API_KEY" not in workflow
-    assert 'cron: "0 8 * * *"' in workflow
-    assert 'timezone: "America/New_York"' in workflow
+    assert config.schedule.hour == 8
+    assert config.schedule.minute == 7
+    schedule_pairs = re.findall(
+        r'- cron: "([^"]+)"\n\s+timezone: "([^"]+)"', workflow
+    )
+    assert schedule_pairs == [
+        ("7 8 * * *", "America/New_York"),
+        ("37 8 * * *", "America/New_York"),
+        ("7 9 * * *", "America/New_York"),
+    ]
+    assert "cancel-in-progress: false" in workflow
+    assert (
+        "FORCE_REQUESTED: ${{ github.event_name == 'workflow_dispatch' "
+        "&& inputs.force || false }}"
+    ) in workflow
 
 
 def test_optional_paid_usage_journal_remains_recoverable_after_failure() -> None:

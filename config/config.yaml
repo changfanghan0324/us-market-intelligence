@@ -34,5 +34,5 @@ pages:
 schedule:
   timezone: America/New_York
   hour: 8
-  minute: 0
+  minute: 7
   inactivity_reminder_days: 30

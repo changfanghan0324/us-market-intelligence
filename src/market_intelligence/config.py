@@ -200,7 +200,7 @@ class PagesConfig(ConfigModel):
 class ScheduleConfig(ConfigModel):
     timezone: Literal["America/New_York"] = "America/New_York"
     hour: Literal[8] = 8
-    minute: Literal[0] = 0
+    minute: Literal[7] = 7
     inactivity_reminder_days: Annotated[int, Field(strict=True, ge=7, le=60)] = 30
 
 

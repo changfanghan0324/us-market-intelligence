@@ -2,13 +2,16 @@
 
 ## Daily schedule
 
-GitHub Actions runs at 08:00 in `America/New_York` using the workflow's IANA
-timezone setting, so EST/EDT changes are automatic. The target is deployment
-before 09:00.
+GitHub Actions makes a primary attempt at 08:07 and safe fallback attempts at
+08:37 and 09:07 in `America/New_York` using the workflow's IANA timezone setting,
+so EST/EDT changes are automatic. A fallback validates and redeploys an existing
+same-day report without collecting sources again; otherwise it generates the
+missing report. The production concurrency group prevents simultaneous writes.
 
-GitHub scheduled workflows are best-effort: starts can be delayed or, under high
-load, dropped. A strict delivery SLA requires an external scheduler or dedicated
-runner invoking the same CLI. Pages can remain the delivery layer.
+GitHub scheduled workflows are best-effort: starts can still be delayed or,
+under high load, dropped. The three non-top-of-hour attempts materially reduce
+that risk but are not a delivery SLA. A strict SLA requires an external scheduler
+or dedicated runner invoking the same CLI. Pages can remain the delivery layer.
 
 ## Publication policy
 

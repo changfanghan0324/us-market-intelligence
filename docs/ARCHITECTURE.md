@@ -6,7 +6,7 @@ Decision record: `ADR-001-OPUS-RECONCILIATION.md`
 ## System flow
 
 ```text
-GitHub Actions — 08:00 America/New_York
+GitHub Actions — 08:07 primary + 08:37/09:07 fallbacks, America/New_York
         |
         v
 fixed configuration preflight (no secret in default mode)
@@ -162,7 +162,11 @@ received provider response. Published request IDs reconcile those events into
 The workflow uses GitHub's current IANA-timezone schedule support:
 
 ```yaml
-- cron: "0 8 * * *"
+- cron: "7 8 * * *"
+  timezone: "America/New_York"
+- cron: "37 8 * * *"
+  timezone: "America/New_York"
+- cron: "7 9 * * *"
   timezone: "America/New_York"
 ```
 
@@ -172,7 +176,9 @@ and the linked current GitHub.com workflow-syntax reference documents schedules.
 Older GitHub Enterprise Server documentation may still describe UTC-only cron.
 
 Manual dispatch supports a `force` input. Report date is the idempotency key;
-scheduled reruns for an already valid date are no-ops.
+scheduled reruns for an already valid date validate and redeploy the existing
+artifact without constructing a provider. The non-top-of-hour primary and retry
+slots reduce the chance that GitHub scheduler congestion prevents publication.
 
 The build job has only the repository write permission needed for the dedicated
 reports branch. The deployment job has `pages: write` and `id-token: write`, uses

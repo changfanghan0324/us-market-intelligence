@@ -70,7 +70,7 @@ def valid_config_data() -> dict[str, object]:
         "schedule": {
             "timezone": "America/New_York",
             "hour": 8,
-            "minute": 0,
+            "minute": 7,
             "inactivity_reminder_days": 30,
         },
     }
@@ -114,7 +114,7 @@ pages:
 schedule:
   timezone: America/New_York
   hour: 8
-  minute: 0
+  minute: 7
   inactivity_reminder_days: 30
 """,
     )
