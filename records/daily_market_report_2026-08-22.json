@@ -1,0 +1,364 @@
+{
+  "earnings": {
+    "candidates": [],
+    "message": "Tomorrow US market is closed. No earnings trading analysis available.",
+    "next_open_session": "2026-08-24",
+    "status": "market_closed",
+    "target_date": "2026-08-23",
+    "universe_coverage": "not_applicable"
+  },
+  "generated_at": "2026-08-23T02:09:39.532339+00:00",
+  "global_macro": {
+    "affected_assets": [
+      "stocks",
+      "bonds",
+      "usd",
+      "commodities"
+    ],
+    "event_date": "2026-08-19",
+    "event_id": "macro_d681dd57fb37fed0290a",
+    "impact": {
+      "beneficiaries": [
+        {
+          "kind": "none_identified",
+          "name": "None identified",
+          "rationale": "僅憑 RSS 標題與日期,無法可靠辨識確定受益的公司、產業或資產。"
+        }
+      ],
+      "indicators_to_monitor_next": [
+        "官方原文中的政策或數據細節",
+        "同一機構後續發布與修訂",
+        "可信來源對事件方向的獨立確認"
+      ],
+      "losers": [
+        {
+          "kind": "none_identified",
+          "name": "None identified",
+          "rationale": "未讀取官方原文與後續證據前,無法可靠辨識確定受損的市場參與者。"
+        }
+      ],
+      "professional_investor_reaction": "專業投資人通常先核對官方原文、發布時間與既有預期,再決定是否調整曝險。",
+      "what_changed": "Federal Reserve 的官方 RSS 在 2026-08-19 發布「Minutes of the Federal Open Market Committee, July 28–29, 2026」;本卡只確認可驗證的發布中繼資料。",
+      "why_it_matters": "官方發布可能影響跨資產定價,但標題本身不足以判定方向;應先閱讀連結中的官方原文。"
+    },
+    "market_impact": "high",
+    "sources": [
+      {
+        "accessed_at": "2026-08-23T02:09:40.254253+00:00",
+        "evidence_id": "src_9f4109a9b2b6c901e664",
+        "evidence_role": "primary",
+        "published_at": "2026-08-19T18:00:00+00:00",
+        "publisher": "Federal Reserve",
+        "quoted_fragment": "",
+        "tier": "1",
+        "title": "Minutes of the Federal Open Market Committee, July 28–29, 2026",
+        "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260819a.htm"
+      }
+    ],
+    "summary": "此項官方發布涉及宏觀政策或經濟條件;免費模式只確認 RSS 標題、日期與官方連結,不推測未讀取的數值或政策細節。",
+    "title": "Minutes of the Federal Open Market Committee, July 28–29, 2026"
+  },
+  "knowledge_refresh": {
+    "background": "事件研究使用明確時間視窗,避免把事件前後所有價格變動都歸因於單一消息。",
+    "concept": "事件視窗與因果限制",
+    "current_relevance": "多個宏觀與公司事件常在同日發生,明確視窗可抑制過度歸因。",
+    "example": "評估政策發布影響時,需同時記錄發布時間、後續修訂與同時公布的經濟資料。",
+    "explanation": "先固定事件發生與觀察期間,再比較同時存在的其他重大資訊與共同市場因素。"
+  },
+  "market_context": {
+    "market_status": "NYSE CLOSED TODAY",
+    "next_open_session": "2026-08-24",
+    "previous_session": "2026-08-21",
+    "tomorrow_date": "2026-08-23",
+    "tomorrow_status": "NYSE CLOSED"
+  },
+  "market_news": [
+    {
+      "affected_sectors": [
+        "Financials",
+        "Real Estate",
+        "Technology"
+      ],
+      "attention_score": "7.8",
+      "bear_case": "若官方原文揭示更嚴格條件或更高風險,市場部位可能轉向防禦。",
+      "bull_case": "若官方原文降低不確定性或改善政策可見度,風險偏好可能獲得支撐。",
+      "event_date": "2026-08-19",
+      "impact": {
+        "beneficiaries": [
+          {
+            "kind": "none_identified",
+            "name": "None identified",
+            "rationale": "僅憑 RSS 標題與日期,無法可靠辨識確定受益的公司、產業或資產。"
+          }
+        ],
+        "indicators_to_monitor_next": [
+          "官方原文中的政策或數據細節",
+          "同一機構後續發布與修訂",
+          "可信來源對事件方向的獨立確認"
+        ],
+        "losers": [
+          {
+            "kind": "none_identified",
+            "name": "None identified",
+            "rationale": "未讀取官方原文與後續證據前,無法可靠辨識確定受損的市場參與者。"
+          }
+        ],
+        "professional_investor_reaction": "專業投資人通常先核對官方原文、發布時間與既有預期,再決定是否調整曝險。",
+        "what_changed": "Federal Reserve 的官方 RSS 在 2026-08-19 發布「Minutes of the Federal Open Market Committee, July 28–29, 2026」;本卡只確認可驗證的發布中繼資料。",
+        "why_it_matters": "官方發布可能影響美國市場預期,但標題本身不足以判定方向;應先閱讀連結中的官方原文。"
+      },
+      "market_impact": "high",
+      "news_id": "news_d681dd57fb37fed0290a",
+      "score_components": [
+        {
+          "key": "market_size_impact",
+          "value": "8.0"
+        },
+        {
+          "key": "earnings_impact",
+          "value": "6.0"
+        },
+        {
+          "key": "macro_importance",
+          "value": "9.0"
+        },
+        {
+          "key": "sector_influence",
+          "value": "8.0"
+        },
+        {
+          "key": "short_term_trading_relevance",
+          "value": "8.0"
+        }
+      ],
+      "sources": [
+        {
+          "accessed_at": "2026-08-23T02:09:40.251606+00:00",
+          "evidence_id": "src_9f4109a9b2b6c901e664",
+          "evidence_role": "primary",
+          "published_at": "2026-08-19T18:00:00+00:00",
+          "publisher": "Federal Reserve",
+          "quoted_fragment": "",
+          "tier": "1",
+          "title": "Minutes of the Federal Open Market Committee, July 28–29, 2026",
+          "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260819a.htm"
+        }
+      ],
+      "summary": "官方 RSS 顯示此更新於 2026-08-19 發布;免費模式僅使用標題、日期與連結中繼資料。",
+      "title": "Minutes of the Federal Open Market Committee, July 28–29, 2026"
+    },
+    {
+      "affected_sectors": [
+        "Financials",
+        "Capital Markets"
+      ],
+      "attention_score": "5.6",
+      "bear_case": "若官方原文揭示更嚴格條件或更高風險,市場部位可能轉向防禦。",
+      "bull_case": "若官方原文降低不確定性或改善政策可見度,風險偏好可能獲得支撐。",
+      "event_date": "2026-08-20",
+      "impact": {
+        "beneficiaries": [
+          {
+            "kind": "none_identified",
+            "name": "None identified",
+            "rationale": "僅憑 RSS 標題與日期,無法可靠辨識確定受益的公司、產業或資產。"
+          }
+        ],
+        "indicators_to_monitor_next": [
+          "官方原文中的政策或數據細節",
+          "同一機構後續發布與修訂",
+          "可信來源對事件方向的獨立確認"
+        ],
+        "losers": [
+          {
+            "kind": "none_identified",
+            "name": "None identified",
+            "rationale": "未讀取官方原文與後續證據前,無法可靠辨識確定受損的市場參與者。"
+          }
+        ],
+        "professional_investor_reaction": "專業投資人通常先核對官方原文、發布時間與既有預期,再決定是否調整曝險。",
+        "what_changed": "Federal Reserve 的官方 RSS 在 2026-08-20 發布「Federal Reserve Board issues enforcement actions with former employee of Regions Bank and former employee of United Community Bank」;本卡只確認可驗證的發布中繼資料。",
+        "why_it_matters": "官方發布可能影響美國市場預期,但標題本身不足以判定方向;應先閱讀連結中的官方原文。"
+      },
+      "market_impact": "medium",
+      "news_id": "news_057488cca9126431c5fb",
+      "score_components": [
+        {
+          "key": "market_size_impact",
+          "value": "5.0"
+        },
+        {
+          "key": "earnings_impact",
+          "value": "5.0"
+        },
+        {
+          "key": "macro_importance",
+          "value": "5.0"
+        },
+        {
+          "key": "sector_influence",
+          "value": "7.0"
+        },
+        {
+          "key": "short_term_trading_relevance",
+          "value": "6.0"
+        }
+      ],
+      "sources": [
+        {
+          "accessed_at": "2026-08-23T02:09:40.251606+00:00",
+          "evidence_id": "src_9e09f2e179cbd9c20018",
+          "evidence_role": "primary",
+          "published_at": "2026-08-20T15:00:00+00:00",
+          "publisher": "Federal Reserve",
+          "quoted_fragment": "",
+          "tier": "1",
+          "title": "Federal Reserve Board issues enforcement actions with former employee of Regions Bank and former employee of United Community Bank",
+          "url": "https://www.federalreserve.gov/newsevents/pressreleases/enforcement20260820a.htm"
+        }
+      ],
+      "summary": "官方 RSS 顯示此更新於 2026-08-20 發布;免費模式僅使用標題、日期與連結中繼資料。",
+      "title": "Federal Reserve Board issues enforcement actions with former employee of Regions Bank and former employee of United Community Bank"
+    },
+    {
+      "affected_sectors": [
+        "Financials",
+        "Capital Markets"
+      ],
+      "attention_score": "5.6",
+      "bear_case": "若官方原文揭示更嚴格條件或更高風險,市場部位可能轉向防禦。",
+      "bull_case": "若官方原文降低不確定性或改善政策可見度,風險偏好可能獲得支撐。",
+      "event_date": "2026-08-20",
+      "impact": {
+        "beneficiaries": [
+          {
+            "kind": "none_identified",
+            "name": "None identified",
+            "rationale": "僅憑 RSS 標題與日期,無法可靠辨識確定受益的公司、產業或資產。"
+          }
+        ],
+        "indicators_to_monitor_next": [
+          "官方原文中的政策或數據細節",
+          "同一機構後續發布與修訂",
+          "可信來源對事件方向的獨立確認"
+        ],
+        "losers": [
+          {
+            "kind": "none_identified",
+            "name": "None identified",
+            "rationale": "未讀取官方原文與後續證據前,無法可靠辨識確定受損的市場參與者。"
+          }
+        ],
+        "professional_investor_reaction": "專業投資人通常先核對官方原文、發布時間與既有預期,再決定是否調整曝險。",
+        "what_changed": "Federal Reserve 的官方 RSS 在 2026-08-20 發布「Federal Reserve Board announces approval of application by National Westminster Bank Plc」;本卡只確認可驗證的發布中繼資料。",
+        "why_it_matters": "官方發布可能影響美國市場預期,但標題本身不足以判定方向;應先閱讀連結中的官方原文。"
+      },
+      "market_impact": "medium",
+      "news_id": "news_ff7e21918adafb388b4d",
+      "score_components": [
+        {
+          "key": "market_size_impact",
+          "value": "5.0"
+        },
+        {
+          "key": "earnings_impact",
+          "value": "5.0"
+        },
+        {
+          "key": "macro_importance",
+          "value": "5.0"
+        },
+        {
+          "key": "sector_influence",
+          "value": "7.0"
+        },
+        {
+          "key": "short_term_trading_relevance",
+          "value": "6.0"
+        }
+      ],
+      "sources": [
+        {
+          "accessed_at": "2026-08-23T02:09:40.251606+00:00",
+          "evidence_id": "src_43f337d8ddc63db78a16",
+          "evidence_role": "primary",
+          "published_at": "2026-08-20T20:00:00+00:00",
+          "publisher": "Federal Reserve",
+          "quoted_fragment": "",
+          "tier": "1",
+          "title": "Federal Reserve Board announces approval of application by National Westminster Bank Plc",
+          "url": "https://www.federalreserve.gov/newsevents/pressreleases/orders20260820a.htm"
+        }
+      ],
+      "summary": "官方 RSS 顯示此更新於 2026-08-20 發布;免費模式僅使用標題、日期與連結中繼資料。",
+      "title": "Federal Reserve Board announces approval of application by National Westminster Bank Plc"
+    }
+  ],
+  "report_date": "2026-08-22",
+  "report_id": "daily-market-report-2026-08-22",
+  "research_discovery": {
+    "applications": [
+      {
+        "application": "用官方論文原文檢查研究設計,再評估其對金融條件分析的用途。",
+        "category": "finance"
+      },
+      {
+        "application": "把研究假設轉成可觀測指標,並在採用前進行樣本外驗證。",
+        "category": "investing"
+      },
+      {
+        "application": "將研究議題作為情境規劃輸入,而不是直接當成營運預測。",
+        "category": "business_strategy"
+      },
+      {
+        "application": "保留論文版本、日期與來源連結,以支援可重現的研究流程。",
+        "category": "technology"
+      }
+    ],
+    "changed_belief": "研究標題適合用來發現待閱讀議題,但在檢查方法與證據前,不應把它當成已驗證的投資結論。",
+    "discovered_on": "2026-08-20",
+    "discovery_id": "research_c4fbc6fde1af76e862e2",
+    "impact": null,
+    "plain_explanation": "聯準會 FEDS 官方研究目錄新增「FEDS Paper: Beyond the Unemployment Rate: A Structural Labor Market Indicator」。免費模式只使用目錄中繼資料;方法、樣本與結論必須以官方論文原文為準。",
+    "sources": [
+      {
+        "accessed_at": "2026-08-23T02:09:40.379975+00:00",
+        "evidence_id": "src_5a18c54a1d15b3f30208",
+        "evidence_role": "primary",
+        "published_at": "2026-08-20T13:40:00+00:00",
+        "publisher": "Federal Reserve",
+        "quoted_fragment": "",
+        "tier": "1",
+        "title": "FEDS Paper: Beyond the Unemployment Rate: A Structural Labor Market Indicator",
+        "url": "https://www.federalreserve.gov/econres/feds/beyond-the-unemployment-rate-a-structural-labor-market-indicator.htm"
+      }
+    ],
+    "title": "FEDS Paper: Beyond the Unemployment Rate: A Structural Labor Market Indicator"
+  },
+  "schema_version": "1.0",
+  "section_statuses": {
+    "earnings": {
+      "detail": "",
+      "status": "available"
+    },
+    "global_macro": {
+      "detail": "This run considers genuine source releases from the prior 30 calendar days for Global Macro; the selected event date remains visible.",
+      "status": "available"
+    },
+    "knowledge_refresh": {
+      "detail": "",
+      "status": "available"
+    },
+    "market_news": {
+      "detail": "This run may use genuine source releases from the prior 14 calendar days to fill the Top 3 when fewer same-session items are available; every card shows its event date.",
+      "status": "available"
+    },
+    "research_discovery": {
+      "detail": "",
+      "status": "available"
+    }
+  },
+  "source_cutoff_at": "2026-08-23T02:09:39.532339+00:00",
+  "timezone": "America/New_York",
+  "validation_status": "valid"
+}

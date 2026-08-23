@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-08-23T02:09:39.532339+00:00",
+  "latest": {
+    "dated_sha256": "3eb41a21d7b155b62277ac689bf64cc44ca01dafe0479938de5dc5b2ec787b02",
+    "generated_at": "2026-08-23T02:09:39.532339+00:00",
+    "href": "reports/daily_market_report_2026-08-22.html",
+    "latest_sha256": "3eb41a21d7b155b62277ac689bf64cc44ca01dafe0479938de5dc5b2ec787b02",
+    "report_date": "2026-08-22",
+    "report_id": "daily-market-report-2026-08-22",
+    "schema_version": "1.0",
+    "sha256": "3eb41a21d7b155b62277ac689bf64cc44ca01dafe0479938de5dc5b2ec787b02"
+  },
+  "manifest_version": "1.0",
+  "reports": [
+    {
+      "generated_at": "2026-08-23T02:09:39.532339+00:00",
+      "href": "reports/daily_market_report_2026-08-22.html",
+      "report_date": "2026-08-22",
+      "report_id": "daily-market-report-2026-08-22",
+      "schema_version": "1.0",
+      "sha256": "3eb41a21d7b155b62277ac689bf64cc44ca01dafe0479938de5dc5b2ec787b02"
+    }
+  ],
+  "retention": {
+    "dated_reports": 8
+  }
+}
