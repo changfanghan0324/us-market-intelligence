@@ -24,3 +24,12 @@ def test_optional_paid_usage_journal_remains_recoverable_after_failure() -> None
 
     assert "Persist observed usage after a failed run" in workflow
     assert "records/usage_events.jsonl" in workflow
+
+
+def test_pages_verification_does_not_pipe_curl_into_an_early_consumer() -> None:
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    verification = workflow.split("- name: Verify public latest report ID", maxsplit=1)[1]
+
+    assert 'latest_html="$(curl' in verification
+    assert '| grep --fixed-strings --quiet "${REPORT_ID}"' not in verification
+    assert 'grep --fixed-strings --quiet "${REPORT_ID}" <<< "${latest_html}"' in verification
