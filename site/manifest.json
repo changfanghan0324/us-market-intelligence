@@ -1,17 +1,25 @@
 {
-  "generated_at": "2026-08-24T13:03:46.248381+00:00",
+  "generated_at": "2026-08-25T13:00:11.064763+00:00",
   "latest": {
-    "dated_sha256": "87fba108f42173f4fcadca4def024c5c03983b22f771e4bf8787db7e2fa3c76c",
-    "generated_at": "2026-08-24T13:03:46.248381+00:00",
-    "href": "reports/daily_market_report_2026-08-24.html",
-    "latest_sha256": "87fba108f42173f4fcadca4def024c5c03983b22f771e4bf8787db7e2fa3c76c",
-    "report_date": "2026-08-24",
-    "report_id": "daily-market-report-2026-08-24",
+    "dated_sha256": "d6292cc94e4ced3a3266cb1669752148093ed48e00e18ed63bee890950beee37",
+    "generated_at": "2026-08-25T13:00:11.064763+00:00",
+    "href": "reports/daily_market_report_2026-08-25.html",
+    "latest_sha256": "d6292cc94e4ced3a3266cb1669752148093ed48e00e18ed63bee890950beee37",
+    "report_date": "2026-08-25",
+    "report_id": "daily-market-report-2026-08-25",
     "schema_version": "1.0",
-    "sha256": "87fba108f42173f4fcadca4def024c5c03983b22f771e4bf8787db7e2fa3c76c"
+    "sha256": "d6292cc94e4ced3a3266cb1669752148093ed48e00e18ed63bee890950beee37"
   },
   "manifest_version": "1.0",
   "reports": [
+    {
+      "generated_at": "2026-08-25T13:00:11.064763+00:00",
+      "href": "reports/daily_market_report_2026-08-25.html",
+      "report_date": "2026-08-25",
+      "report_id": "daily-market-report-2026-08-25",
+      "schema_version": "1.0",
+      "sha256": "d6292cc94e4ced3a3266cb1669752148093ed48e00e18ed63bee890950beee37"
+    },
     {
       "generated_at": "2026-08-24T13:03:46.248381+00:00",
       "href": "reports/daily_market_report_2026-08-24.html",
