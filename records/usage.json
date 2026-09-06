@@ -9,7 +9,7 @@
     "2026-09": {
       "input_tokens": 0,
       "output_tokens": 0,
-      "reports": 5,
+      "reports": 6,
       "web_search_calls": 0
     }
   },
@@ -1373,13 +1373,98 @@
         "web_search_calls": 0
       },
       "usage_run_id": "a4ddc0908ebdf9fd7365c9b6dfe13b4c5cfdb08777374ba508bd4e2090766228"
+    },
+    {
+      "generated_at": "2026-09-06T15:20:17.276519+00:00",
+      "report_date": "2026-09-06",
+      "report_id": "daily-market-report-2026-09-06",
+      "runs": [
+        {
+          "attempts": 1,
+          "duration_ms": 585,
+          "input_tokens": 0,
+          "model": "deterministic_official_sources_v2",
+          "output_tokens": 0,
+          "provider": "official_public_sources",
+          "request_id": null,
+          "request_ids": [],
+          "section": "market_news",
+          "source_count": 8,
+          "status": "success",
+          "web_search_calls": 0
+        },
+        {
+          "attempts": 1,
+          "duration_ms": 203,
+          "input_tokens": 0,
+          "model": "deterministic_official_sources_v2",
+          "output_tokens": 0,
+          "provider": "official_public_sources",
+          "request_id": null,
+          "request_ids": [],
+          "section": "global_macro",
+          "source_count": 2,
+          "status": "success",
+          "web_search_calls": 0
+        },
+        {
+          "attempts": 0,
+          "duration_ms": 0,
+          "input_tokens": null,
+          "model": null,
+          "output_tokens": null,
+          "provider": "deterministic policy",
+          "request_id": null,
+          "request_ids": [],
+          "section": "earnings",
+          "source_count": 0,
+          "status": "skipped",
+          "web_search_calls": 0
+        },
+        {
+          "attempts": 1,
+          "duration_ms": 75,
+          "input_tokens": 0,
+          "model": "deterministic_official_sources_v2",
+          "output_tokens": 0,
+          "provider": "official_public_sources",
+          "request_id": null,
+          "request_ids": [],
+          "section": "research_discovery",
+          "source_count": 1,
+          "status": "success",
+          "web_search_calls": 0
+        },
+        {
+          "attempts": 1,
+          "duration_ms": 0,
+          "input_tokens": 0,
+          "model": "deterministic_official_sources_v2",
+          "output_tokens": 0,
+          "provider": "official_public_sources",
+          "request_id": null,
+          "request_ids": [],
+          "section": "knowledge_refresh",
+          "source_count": 0,
+          "status": "success",
+          "web_search_calls": 0
+        }
+      ],
+      "totals": {
+        "attempts": 4,
+        "duration_ms": 863,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "web_search_calls": 0
+      },
+      "usage_run_id": "49e7402a349d21e971e76db0ae6177b2415b3eb552cc35194a74447a8287aa34"
     }
   ],
   "schema_version": "1.0",
   "totals": {
     "input_tokens": 0,
     "output_tokens": 0,
-    "reports": 16,
+    "reports": 17,
     "web_search_calls": 0
   }
 }
